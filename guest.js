@@ -1,6 +1,6 @@
 let localStream;
 let peerConnection;
-const ws = new WebSocket("ws://localhost:3000");
+const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 const videoElement = document.getElementById("localVideo");
 
 const config = {
@@ -32,7 +32,7 @@ async function initCamera() {
       if (track.kind === 'video' && sender.setParameters) {
         const parameters = sender.getParameters();
         if (!parameters.encodings) parameters.encodings = [{}];
-        parameters.encodings[0].maxBitrate = 2500000; // 2.5 Mbps
+        parameters.encodings[0].maxBitrate = 2500000;
         sender.setParameters(parameters).catch(e => console.warn("Bitrate error:", e));
       }
     });

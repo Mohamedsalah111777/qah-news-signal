@@ -14,11 +14,28 @@ ws.onopen = () => {
 
 async function initCamera() {
   try {
-    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30 }
+      },
+      audio: true
+    });
+
     videoElement.srcObject = localStream;
 
     peerConnection = new RTCPeerConnection(config);
-    localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+    localStream.getTracks().forEach(track => {
+      const sender = peerConnection.addTrack(track, localStream);
+
+      if (track.kind === 'video' && sender.setParameters) {
+        const parameters = sender.getParameters();
+        if (!parameters.encodings) parameters.encodings = [{}];
+        parameters.encodings[0].maxBitrate = 2500000; // 2.5 Mbps
+        sender.setParameters(parameters).catch(e => console.warn("Bitrate error:", e));
+      }
+    });
 
     peerConnection.onicecandidate = event => {
       if (event.candidate) {
@@ -57,3 +74,14 @@ ws.onmessage = async ({ data }) => {
     }
   }
 };
+
+function toggleFullscreen(videoId) {
+  const video = document.getElementById(videoId);
+  if (!document.fullscreenElement) {
+    video.requestFullscreen().catch(err => {
+      console.error(Error attempting to enable fullscreen: ${err.message});
+    });
+  } else {
+    document.exitFullscreen();
+  }
+}

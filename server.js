@@ -1,7 +1,19 @@
+const express = require('express');
+const path = require('path');
+const http = require('http');
 const WebSocket = require('ws');
 
+const app = express();
 const port = process.env.PORT || 3000;
-const wss = new WebSocket.Server({ port });
+
+// تقديم الملفات من مجلد public
+app.use(express.static(path.join(__dirname, 'public')));
+
+// إنشاء سيرفر HTTP
+const server = http.createServer(app);
+
+// إنشاء WebSocket سيرفر
+const wss = new WebSocket.Server({ server });
 
 const clients = {
   guest: null,
@@ -37,4 +49,7 @@ wss.on('connection', ws => {
   });
 });
 
-console.log(`WebSocket signaling server running on port ${port}`);
+// بدء السيرفر
+server.listen(port, () => {
+  console.log(`Server running on http://localhost:${port}`);
+});

@@ -1,7 +1,7 @@
 let remoteVideo = document.getElementById("remoteVideo");
 let peerConnection;
 let localAudioStream;
-const ws = new WebSocket("ws://localhost:3000");
+const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 
 const config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]

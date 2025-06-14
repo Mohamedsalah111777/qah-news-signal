@@ -1,0 +1,12 @@
+{
+  "name": "qah-news-signal-server",
+  "version": "1.0.0",
+  "description": "WebRTC Signaling Server for QAH News",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.0.0"
+  }
+}

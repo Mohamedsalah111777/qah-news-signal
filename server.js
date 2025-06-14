@@ -17,7 +17,7 @@ wss.on('connection', ws => {
     if (msg.type === 'register') {
       role = msg.role;
       clients[role] = ws;
-      console.log(Registered: ${role});
+      console.log(`Registered: ${role}`);
     }
 
     if (msg.type === 'signal' && clients[msg.target]) {

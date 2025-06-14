@@ -32,9 +32,9 @@ wss.on('connection', ws => {
   ws.on('close', () => {
     if (role && clients[role] === ws) {
       clients[role] = null;
-      console.log(Disconnected: ${role});
+      console.log(`Disconnected: ${role}`);
     }
   });
 });
 
-console.log(WebSocket signaling server running on port ${port});
+console.log(`WebSocket signaling server running on port ${port}`);

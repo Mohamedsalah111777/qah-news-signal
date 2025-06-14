@@ -1,46 +1,40 @@
 const WebSocket = require('ws');
 
-const wss = new WebSocket.Server({ port: 3000 });
+const port = process.env.PORT || 3000;
+const wss = new WebSocket.Server({ port });
 
-let clients = {};
+const clients = {
+  guest: null,
+  studio: null
+};
 
-wss.on('connection', function connection(ws) {
-  ws.on('message', function incoming(message) {
-    let data;
-    try {
-      data = JSON.parse(message);
-    } catch (e) {
-      console.error('Invalid JSON:', message);
-      return;
-    }
+wss.on('connection', ws => {
+  let role = null;
 
-    const { type, role, target, payload } = data;
+  ws.on('message', message => {
+    const msg = JSON.parse(message);
 
-    // تسجيل العميل حسب دوره
-    if (type === 'register') {
+    if (msg.type === 'register') {
+      role = msg.role;
       clients[role] = ws;
-      console.log(`${role} connected`);
-      return;
+      console.log(Registered: ${role});
     }
 
-    // إرسال الرسالة للطرف الآخر
-    if (type === 'signal' && target && clients[target]) {
-      clients[target].send(JSON.stringify({
+    if (msg.type === 'signal' && clients[msg.target]) {
+      clients[msg.target].send(JSON.stringify({
         type: 'signal',
         from: role,
-        payload
+        payload: msg.payload
       }));
     }
   });
 
   ws.on('close', () => {
-    for (let role in clients) {
-      if (clients[role] === ws) {
-        console.log(`${role} disconnected`);
-        delete clients[role];
-      }
+    if (role && clients[role] === ws) {
+      clients[role] = null;
+      console.log(Disconnected: ${role});
     }
   });
 });
 
-console.log('Signaling server running on ws://localhost:3000');
+console.log(WebSocket signaling server running on port ${port});

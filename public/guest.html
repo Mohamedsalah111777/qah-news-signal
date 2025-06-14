@@ -2,15 +2,27 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>Guest Page - QAH News</title>
   <style>
     body { margin: 0; background: black; display: flex; justify-content: center; align-items: center; height: 100vh; }
     video { width: 100%; height: auto; max-height: 100vh; }
+    button {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255,255,255,0.1);
+      color: white;
+      border: none;
+      padding: 10px 15px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
   <video id="localVideo" autoplay playsinline muted></video>
+  <button onclick="toggleFullscreen('localVideo')">Fullscreen</button>
   <script src="guest.js"></script>
 </body>
 </html>

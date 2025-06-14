@@ -79,7 +79,7 @@ function toggleFullscreen(videoId) {
   const video = document.getElementById(videoId);
   if (!document.fullscreenElement) {
     video.requestFullscreen().catch(err => {
-      console.error(Error attempting to enable fullscreen: ${err.message});
+      console.error(`Error attempting to enable fullscreen: ${err.message}`);
     });
   } else {
     document.exitFullscreen();

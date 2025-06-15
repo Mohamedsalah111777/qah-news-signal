@@ -15,7 +15,8 @@ ws.onmessage = async ({ data }) => {
   const msg = JSON.parse(data);
   if (msg.type === "signal" && msg.from === "guest") {
     const { sdp, candidate } = msg.payload;
-    if (!peerConnection) startConnection();
+
+    if (!peerConnection) await startConnection();
 
     if (sdp) {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
@@ -28,7 +29,6 @@ ws.onmessage = async ({ data }) => {
         payload: { sdp: answer }
       }));
     }
-
     if (candidate) {
       await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     }
@@ -60,16 +60,5 @@ async function startConnection() {
     });
   } catch (err) {
     console.warn("Audio input not available:", err);
-  }
-}
-
-function toggleFullscreen(videoId) {
-  const video = document.getElementById(videoId);
-  if (!document.fullscreenElement) {
-    video.requestFullscreen().catch(err => {
-      console.error("Error attempting fullscreen:", err);
-    });
-  } else {
-    document.exitFullscreen();
   }
 }

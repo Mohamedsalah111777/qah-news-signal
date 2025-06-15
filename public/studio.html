@@ -1,62 +1,358 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Studio Page - QAH News</title>
+  <meta name="description" content="لوحة تحكم الاستوديو - QAH News">
+  <title>استوديو QAH نيوز | البث المباشر</title>
   <style>
-    body {
+    :root {
+      --primary-color: #0066cc;
+      --hover-color: #004d99;
+      --background-color: #111;
+      --text-color: #fff;
+      --border-color: #333;
+    }
+    
+    * {
+      box-sizing: border-box;
       margin: 0;
-      background: #111;
-      color: white;
+      padding: 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    body {
+      background: var(--background-color);
+      color: var(--text-color);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+    }
+    
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 20px;
+    }
+    
+    h1 {
+      font-size: 24px;
+      color: var(--primary-color);
+    }
+    
+    .main-content {
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      height: 100vh;
+      flex-grow: 1;
+      gap: 20px;
     }
-    video {
-      width: 80%;
-      max-height: 80vh;
-      border: 2px solid #fff;
-      border-radius: 10px;
-      background: black;
+    
+    .video-container {
+      position: relative;
+      width: 100%;
+      max-width: 900px;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+    }
+    
+    #remoteVideo {
+      width: 100%;
+      height: auto;
+      max-height: 70vh;
+      background: #000;
+      display: block;
       cursor: pointer;
+      transition: transform 0.3s;
     }
+    
+    #remoteVideo:hover {
+      transform: scale(1.01);
+    }
+    
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 15px;
+      margin-top: 20px;
+      width: 100%;
+      max-width: 900px;
+    }
+    
     button {
-      margin-top: 10px;
-      padding: 10px 20px;
-      background: #444;
+      padding: 12px 24px;
+      background-color: var(--primary-color);
       color: white;
       border: none;
-      border-radius: 8px;
-      font-size: 16px;
+      border-radius: 30px;
       cursor: pointer;
+      font-size: 16px;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.3s;
+      min-width: 180px;
+      justify-content: center;
     }
+    
     button:hover {
+      background-color: var(--hover-color);
+      transform: translateY(-2px);
+    }
+    
+    button:active {
+      transform: translateY(0);
+    }
+    
+    .icon {
+      width: 20px;
+      height: 20px;
+    }
+    
+    .status-bar {
+      display: flex;
+      justify-content: space-between;
+      width: 100%;
+      max-width: 900px;
+      margin-top: 20px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.3);
+      border-radius: 8px;
+    }
+    
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    
+    .indicator {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
       background: #666;
+    }
+    
+    .indicator.active {
+      background: #4CAF50;
+      box-shadow: 0 0 8px #4CAF50;
+    }
+    
+    .connection-quality {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    
+    .quality-level {
+      height: 10px;
+      width: 30px;
+      background: linear-gradient(to right, #f44336, #FFC107, #4CAF50);
+      border-radius: 5px;
+      overflow: hidden;
+    }
+    
+    .quality-value {
+      height: 100%;
+      width: 100%;
+      background: #333;
+      transform-origin: left;
+      transform: scaleX(0.7);
+    }
+    
+    @media (max-width: 768px) {
+      body {
+        padding: 10px;
+      }
+      
+      h1 {
+        font-size: 20px;
+      }
+      
+      button {
+        padding: 10px 15px;
+        font-size: 14px;
+        min-width: 140px;
+      }
+      
+      .controls {
+        gap: 10px;
+      }
     }
   </style>
 </head>
 <body>
-  <h2>ضيف الفيديو</h2>
-  <video id="remoteVideo" autoplay playsinline></video>
-  <button onclick="toggleFullscreen()">ملء الشاشة</button>
+  <header>
+    <h1>استوديو QAH نيوز - البث المباشر</h1>
+    <div class="connection-quality">
+      <span>جودة الاتصال:</span>
+      <div class="quality-level">
+        <div class="quality-value" id="qualityBar"></div>
+      </div>
+      <span id="qualityText">70%</span>
+    </div>
+  </header>
+  
+  <div class="main-content">
+    <div class="video-container">
+      <video id="remoteVideo" autoplay playsinline></video>
+    </div>
+    
+    <div class="controls">
+      <button onclick="toggleFullscreen()">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M5,5H10V7H7V10H5V5M14,5H19V10H17V7H14V5M17,14H19V19H14V17H17V14M10,17V19H5V14H7V17H10Z"/>
+        </svg>
+        ملء الشاشة
+      </button>
+      <button onclick="toggleAudio()" id="audioButton">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z"/>
+        </svg>
+        <span id="audioButtonText">كتم الصوت</span>
+      </button>
+      <button onclick="sendMessageToGuest()">
+        <svg class="icon" viewBox="0 0 24 24">
+          <path fill="currentColor" d="M10,9V5L3,12L10,19V14.9C15,14.9 18.5,16.5 21,20C20,15 17,10 10,9Z"/>
+        </svg>
+        إرسال رسالة
+      </button>
+    </div>
+    
+    <div class="status-bar">
+      <div class="status-item">
+        <div class="indicator" id="connectionStatus"></div>
+        <span id="connectionStatusText">جاري الاتصال...</span>
+      </div>
+      <div class="status-item">
+        <div class="indicator" id="videoStatus"></div>
+        <span id="videoStatusText">في انتظار الفيديو...</span>
+      </div>
+      <div class="status-item">
+        <div class="indicator" id="audioStatus"></div>
+        <span id="audioStatusText">في انتظار الصوت...</span>
+      </div>
+    </div>
+  </div>
 
   <script>
+    // حالة العناصر
+    let isAudioMuted = false;
+    let connectionStats = {
+      quality: 0.7,
+      video: false,
+      audio: false,
+      connected: false
+    };
+    
+    // ملء الشاشة
     function toggleFullscreen() {
       const video = document.getElementById('remoteVideo');
       if (!document.fullscreenElement) {
         video.requestFullscreen().catch(err => {
-          console.error(`Error attempting to enable fullscreen: ${err.message}`);
+          console.error('Fullscreen error:', err);
+          updateStatus('فشل تفعيل ملء الشاشة', 'error');
         });
       } else {
         document.exitFullscreen();
       }
     }
-
-    // السماح بـ Fullscreen عند الضغط على الفيديو أيضًا
-    document.getElementById("remoteVideo").addEventListener("click", toggleFullscreen);
+    
+    // تبديل الصوت
+    function toggleAudio() {
+      const video = document.getElementById('remoteVideo');
+      isAudioMuted = !isAudioMuted;
+      video.muted = isAudioMuted;
+      document.getElementById('audioButtonText').textContent = 
+        isAudioMuted ? 'تشغيل الصوت' : 'كتم الصوت';
+      updateStatus(isAudioMuted ? 'الصوت مكتوم' : 'الصوت نشط', 'info');
+    }
+    
+    // إرسال رسالة للضيف (وهمي حالياً)
+    function sendMessageToGuest() {
+      const message = prompt('أدخل الرسالة للضيف:', 'شكراً على المشاركة!');
+      if (message) {
+        updateStatus(`تم إرسال الرسالة: "${message}"`, 'success');
+        // هنا سيتم إرسال الرسالة عبر WebSocket
+      }
+    }
+    
+    // تحديث حالة العناصر
+    function updateStatus(message, type) {
+      console.log(`[${type}] ${message}`);
+      // يمكن إضافة عرض الرسائل للمستخدم إذا لزم الأمر
+    }
+    
+    // تحديث واجهة المستخدم بناءً على حالة الاتصال
+    function updateUI() {
+      const { quality, video, audio, connected } = connectionStats;
+      
+      // جودة الاتصال
+      document.getElementById('qualityBar').style.transform = `scaleX(${quality})`;
+      document.getElementById('qualityText').textContent = `${Math.round(quality * 100)}%`;
+      
+      // حالة الاتصال
+      const connStatus = document.getElementById('connectionStatus');
+      const connText = document.getElementById('connectionStatusText');
+      if (connected) {
+        connStatus.classList.add('active');
+        connText.textContent = 'متصل';
+      } else {
+        connStatus.classList.remove('active');
+        connText.textContent = 'غير متصل';
+      }
+      
+      // حالة الفيديو
+      const vidStatus = document.getElementById('videoStatus');
+      const vidText = document.getElementById('videoStatusText');
+      if (video) {
+        vidStatus.classList.add('active');
+        vidText.textContent = 'الفيديو نشط';
+      } else {
+        vidStatus.classList.remove('active');
+        vidText.textContent = 'لا يوجد فيديو';
+      }
+      
+      // حالة الصوت
+      const audStatus = document.getElementById('audioStatus');
+      const audText = document.getElementById('audioStatusText');
+      if (audio) {
+        audStatus.classList.add('active');
+        audText.textContent = 'الصوت نشط';
+      } else {
+        audStatus.classList.remove('active');
+        audText.textContent = 'لا يوجد صوت';
+      }
+    }
+    
+    // محاكاة بيانات الاتصال (ستستبدل بالبيانات الحقيقية من WebRTC)
+    function simulateConnectionData() {
+      setInterval(() => {
+        connectionStats = {
+          quality: Math.min(0.3 + Math.random() * 0.7, 0.95),
+          video: Math.random() > 0.3,
+          audio: Math.random() > 0.3,
+          connected: true
+        };
+        updateUI();
+      }, 3000);
+    }
+    
+    // بدء التشغيل
+    document.addEventListener('DOMContentLoaded', () => {
+      updateUI();
+      simulateConnectionData();
+      
+      // السماح بالملء الشاشة عند النقر على الفيديو
+      document.getElementById('remoteVideo').addEventListener('click', toggleFullscreen);
+    });
   </script>
   <script src="studio.js"></script>
 </body>

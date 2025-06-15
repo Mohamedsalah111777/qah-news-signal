@@ -1,6 +1,6 @@
-let remoteVideo = document.getElementById("remoteVideo");
-let peerConnection;
-let localAudioStream;
+let remoteVideo = document.getElementById("remoteVideo");  
+let peerConnection;  
+let localStream;  
 const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 
 const config = {
@@ -9,7 +9,16 @@ const config = {
 
 ws.onopen = () => {
   ws.send(JSON.stringify({ type: "register", role: "studio" }));
+  initMedia();
 };
+
+async function initMedia() {
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+  } catch (err) {
+    console.warn("Media not available:", err);
+  }
+}
 
 ws.onmessage = async ({ data }) => {
   const msg = JSON.parse(data);
@@ -29,14 +38,13 @@ ws.onmessage = async ({ data }) => {
         payload: { sdp: answer }
       }));
     }
-
     if (candidate) {
       await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     }
   }
 };
 
-async function startConnection() {
+function startConnection() {
   peerConnection = new RTCPeerConnection(config);
 
   peerConnection.ontrack = (event) => {
@@ -54,23 +62,9 @@ async function startConnection() {
     }
   };
 
-  try {
-    localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    localAudioStream.getTracks().forEach(track => {
-      peerConnection.addTrack(track, localAudioStream);
+  if (localStream) {
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
     });
-  } catch (err) {
-    console.warn("Audio input not available:", err);
-  }
-}
-
-function toggleFullscreen(videoId) {
-  const video = document.getElementById(videoId);
-  if (!document.fullscreenElement) {
-    video.requestFullscreen().catch(err => {
-      console.error(`Error attempting to enable fullscreen: ${err.message}`);
-    });
-  } else {
-    document.exitFullscreen();
   }
 }

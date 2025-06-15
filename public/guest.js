@@ -1,5 +1,6 @@
 let localStream;
 let peerConnection;
+let usingFrontCamera = true;
 const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 const videoElement = document.getElementById("localVideo");
 
@@ -14,39 +15,49 @@ ws.onopen = () => {
 
 async function initCamera() {
   try {
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+
+    const videoConstraints = {
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 30 },
+      facingMode: usingFrontCamera ? "user" : "environment"
+    };
+
     localStream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 30 }
-      },
+      video: videoConstraints,
       audio: true
     });
 
     videoElement.srcObject = localStream;
 
-    peerConnection = new RTCPeerConnection(config);
+    if (!peerConnection) {
+      peerConnection = new RTCPeerConnection(config);
+
+      peerConnection.onicecandidate = event => {
+        if (event.candidate) {
+          ws.send(JSON.stringify({
+            type: "signal",
+            role: "guest",
+            target: "studio",
+            payload: { candidate: event.candidate }
+          }));
+        }
+      };
+
+      peerConnection.ontrack = (event) => {
+        // استقبل صوت من الاستوديو
+        const remoteAudio = new Audio();
+        remoteAudio.srcObject = event.streams[0];
+        remoteAudio.play();
+      };
+    }
+
     localStream.getTracks().forEach(track => {
-      const sender = peerConnection.addTrack(track, localStream);
-
-      if (track.kind === 'video' && sender.setParameters) {
-        const parameters = sender.getParameters();
-        if (!parameters.encodings) parameters.encodings = [{}];
-        parameters.encodings[0].maxBitrate = 2500000;
-        sender.setParameters(parameters).catch(e => console.warn("Bitrate error:", e));
-      }
+      peerConnection.addTrack(track, localStream);
     });
-
-    peerConnection.onicecandidate = event => {
-      if (event.candidate) {
-        ws.send(JSON.stringify({
-          type: "signal",
-          role: "guest",
-          target: "studio",
-          payload: { candidate: event.candidate }
-        }));
-      }
-    };
 
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
@@ -75,11 +86,16 @@ ws.onmessage = async ({ data }) => {
   }
 };
 
+function toggleCamera() {
+  usingFrontCamera = !usingFrontCamera;
+  initCamera();
+}
+
 function toggleFullscreen(videoId) {
   const video = document.getElementById(videoId);
   if (!document.fullscreenElement) {
     video.requestFullscreen().catch(err => {
-      console.error(`Error attempting to enable fullscreen: ${err.message}`);
+      console.error(`Error attempting fullscreen: ${err.message}`);
     });
   } else {
     document.exitFullscreen();

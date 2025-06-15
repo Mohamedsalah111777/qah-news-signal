@@ -10,11 +10,12 @@ const config = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     {
-      urls: "turn:openrelay.metered.ca:80",
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
       username: "openrelayproject",
       credential: "openrelayproject"
     }
-  ]
+  ],
+  iceTransportPolicy: "relay"
 };
 
 ws.onopen = () => {
@@ -32,7 +33,7 @@ ws.onmessage = async ({ data }) => {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
       remoteDescriptionSet = true;
 
-      // إضافة الـ ICE Candidates المؤجلة
+      // إضافة أي ICE مخزنة
       for (const c of pendingCandidates) {
         try {
           await peerConnection.addIceCandidate(new RTCIceCandidate(c));
@@ -71,7 +72,20 @@ async function startConnection() {
   peerConnection = new RTCPeerConnection(config);
 
   peerConnection.ontrack = (event) => {
-    remoteVideo.srcObject = event.streams[0];
+    const stream = event.streams[0];
+    remoteVideo.srcObject = stream;
+
+    // بدء تشغيل الفيديو تلقائيًا
+    remoteVideo.play().catch(err => {
+      console.warn("Video autoplay blocked:", err);
+    });
+
+    // في حالة وصول صوت فقط
+    const remoteAudio = new Audio();
+    remoteAudio.srcObject = stream;
+    remoteAudio.play().catch(err => {
+      console.warn("Remote audio autoplay failed:", err);
+    });
   };
 
   peerConnection.onicecandidate = (event) => {

@@ -9,22 +9,22 @@ const wss = new WebSocket.Server({ server });
 
 const port = process.env.PORT || 3000;
 
+// تقديم ملفات static من مجلد public
 app.use(express.static(path.join(__dirname, 'public')));
 
+// routes (اختياري)
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'guest.html'));
 });
 
+// نظام الإشارات WebRTC
 let guests = [];
 let studios = [];
 
 wss.on('connection', (ws) => {
   let role = null;
 
-  console.log("New WebSocket connection");
-
   ws.on('message', (msg) => {
-    console.log("Message received:", msg);
     const data = JSON.parse(msg);
 
     if (data.type === 'register') {
@@ -47,12 +47,11 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
-    console.log(`${role} disconnected`);
     if (role === 'guest') guests = guests.filter(client => client !== ws);
     else if (role === 'studio') studios = studios.filter(client => client !== ws);
   });
 });
 
 server.listen(port, () => {
-  console.log(`✅ Server running on port ${port}`);
+  console.log(`Server running on port ${port}`);
 });

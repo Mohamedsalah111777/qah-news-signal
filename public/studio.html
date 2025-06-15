@@ -1,14 +1,45 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Studio</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Studio Page - QAH News</title>
   <style>
-    video { width: 100%; height: auto; background: black; }
+    body {
+      margin: 0;
+      background: #111;
+      color: white;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+    video {
+      width: 90%;
+      max-height: 85vh;
+      border: 2px solid #fff;
+      border-radius: 10px;
+      background: black;
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+    }
+    button {
+      padding: 8px 12px;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
-  <video id="remoteVideo" autoplay playsinline muted onclick="toggleFullscreen('remoteVideo')"></video>
+  <h2>ضيف الفيديو</h2>
+  <div id="controls">
+    <button onclick="toggleFullscreen('remoteVideo')">ملء الشاشة</button>
+  </div>
+  <video id="remoteVideo" autoplay playsinline></video>
   <script src="studio.js"></script>
 </body>
 </html>

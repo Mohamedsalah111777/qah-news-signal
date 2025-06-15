@@ -21,42 +21,22 @@
       border: 2px solid #fff;
       border-radius: 10px;
       background: black;
-      cursor: pointer;
     }
     button {
-      margin-top: 10px;
+      margin-top: 15px;
       padding: 10px 20px;
-      background: #444;
+      background: rgba(255, 255, 255, 0.1);
       color: white;
-      border: none;
+      border: 1px solid white;
       border-radius: 8px;
-      font-size: 16px;
       cursor: pointer;
-    }
-    button:hover {
-      background: #666;
     }
   </style>
 </head>
 <body>
   <h2>ضيف الفيديو</h2>
   <video id="remoteVideo" autoplay playsinline></video>
-  <button onclick="toggleFullscreen()">ملء الشاشة</button>
-
-  <script>
-    function toggleFullscreen() {
-      const video = document.getElementById('remoteVideo');
-      if (!document.fullscreenElement) {
-        video.requestFullscreen().catch(err => {
-          console.error(`Error attempting to enable fullscreen: ${err.message}`);
-        });
-      } else {
-        document.exitFullscreen();
-      }
-    }
-
-    document.getElementById("remoteVideo").addEventListener("click", toggleFullscreen);
-  </script>
+  <button onclick="toggleFullscreen('remoteVideo')">Fullscreen</button>
   <script src="studio.js"></script>
 </body>
 </html>

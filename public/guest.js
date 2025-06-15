@@ -1,20 +1,10 @@
 let localStream;
 let peerConnection;
-let usingFrontCamera = true;
-let pendingCandidates = [];
 const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 const videoElement = document.getElementById("localVideo");
 
 const config = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    {
-      urls: "turn:openrelay.metered.ca:443?transport=tcp",
-      username: "openrelayproject",
-      credential: "openrelayproject"
-    }
-  ],
-  iceTransportPolicy: "relay"
+  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
 ws.onopen = () => {
@@ -24,63 +14,48 @@ ws.onopen = () => {
 
 async function initCamera() {
   try {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
-
-    const videoConstraints = {
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      frameRate: { ideal: 30 },
-      facingMode: usingFrontCamera ? "user" : "environment"
-    };
-
     localStream = await navigator.mediaDevices.getUserMedia({
-      video: videoConstraints,
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30 }
+      },
       audio: true
     });
 
     videoElement.srcObject = localStream;
 
-    if (!peerConnection) {
-      peerConnection = new RTCPeerConnection(config);
-
-      peerConnection.onicecandidate = event => {
-        if (event.candidate) {
-          ws.send(JSON.stringify({
-            type: "signal",
-            role: "guest",
-            target: "studio",
-            payload: { candidate: event.candidate }
-          }));
-        }
-      };
-
-      peerConnection.oniceconnectionstatechange = () => {
-        console.log("ICE Connection State:", peerConnection.iceConnectionState);
-      };
-
-      peerConnection.ontrack = (event) => {
-        const remoteAudio = new Audio();
-        remoteAudio.srcObject = event.streams[0];
-        remoteAudio.play();
-      };
-    }
-
+    peerConnection = new RTCPeerConnection(config);
     localStream.getTracks().forEach(track => {
-      peerConnection.addTrack(track, localStream);
+      const sender = peerConnection.addTrack(track, localStream);
+
+      if (track.kind === 'video' && sender.setParameters) {
+        const parameters = sender.getParameters();
+        if (!parameters.encodings) parameters.encodings = [{}];
+        parameters.encodings[0].maxBitrate = 2500000;
+        sender.setParameters(parameters).catch(e => console.warn("Bitrate error:", e));
+      }
     });
+
+    peerConnection.onicecandidate = event => {
+      if (event.candidate) {
+        ws.send(JSON.stringify({
+          type: "signal",
+          role: "guest",
+          target: "studio",
+          payload: { candidate: event.candidate }
+        }));
+      }
+    };
 
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
-
     ws.send(JSON.stringify({
       type: "signal",
       role: "guest",
       target: "studio",
       payload: { sdp: offer }
     }));
-
   } catch (err) {
     console.error("Media error:", err);
   }
@@ -93,41 +68,18 @@ ws.onmessage = async ({ data }) => {
 
     if (sdp) {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-      pendingCandidates.forEach(async c => {
-        try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(c));
-        } catch (err) {
-          console.warn("Error applying stored ICE:", err);
-        }
-      });
-      pendingCandidates = [];
     }
-
     if (candidate) {
-      if (peerConnection.remoteDescription) {
-        try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.warn("Failed to add ICE candidate:", err);
-        }
-      } else {
-        pendingCandidates.push(candidate);
-        console.log("Stored ICE candidate before remote description set");
-      }
+      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
     }
   }
 };
-
-function toggleCamera() {
-  usingFrontCamera = !usingFrontCamera;
-  initCamera();
-}
 
 function toggleFullscreen(videoId) {
   const video = document.getElementById(videoId);
   if (!document.fullscreenElement) {
     video.requestFullscreen().catch(err => {
-      console.error(`Error attempting fullscreen: ${err.message}`);
+      console.error(`Error attempting to enable fullscreen: ${err.message}`);
     });
   } else {
     document.exitFullscreen();

@@ -55,7 +55,7 @@ class WebRTCClient {
   }
 
   connectSignalingServer() {
-    this.ws = new WebSocket("wss://your-render-app.onrender.com");
+    this.ws = new WebSocket("wss://qah-news-signal.onrender.com");
     
     this.ws.onopen = () => {
       this.updateStatus("متصل بالخادم", "success");

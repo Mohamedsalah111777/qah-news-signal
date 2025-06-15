@@ -5,7 +5,14 @@ const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 const videoElement = document.getElementById("localVideo");
 
 const config = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    }
+  ]
 };
 
 ws.onopen = () => {
@@ -48,7 +55,6 @@ async function initCamera() {
       };
 
       peerConnection.ontrack = (event) => {
-        // استقبل صوت من الاستوديو
         const remoteAudio = new Audio();
         remoteAudio.srcObject = event.streams[0];
         remoteAudio.play();

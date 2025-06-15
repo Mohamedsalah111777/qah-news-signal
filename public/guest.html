@@ -1,239 +1,71 @@
-let localStream;
-let peerConnection;
-let usingFrontCamera = true;
-const ws = new WebSocket("wss://qah-news-signal.onrender.com");
-const videoElement = document.getElementById("localVideo");
-
-const config = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:global.stun.twilio.com:3478?transport=udp" }
-  ]
-};
-
-// تحديث حالة الواجهة
-function updateStatus(message, type) {
-  const statusElement = document.getElementById('status');
-  if (statusElement) {
-    statusElement.textContent = message;
-    statusElement.style.color = 
-      type === 'success' ? '#4CAF50' :
-      type === 'error' ? '#F44336' :
-      type === 'warning' ? '#FFC107' : '#2196F3';
-  }
-}
-
-// تحديث جودة الاتصال
-function updateConnectionQuality(quality) {
-  const qualityText = document.getElementById('quality-text');
-  const qualityIndicator = document.getElementById('quality-indicator');
-  
-  if (qualityText && qualityIndicator) {
-    const qualities = {
-      0.8: { text: 'ممتازة', color: '#4CAF50' },
-      0.6: { text: 'جيدة', color: '#8BC34A' },
-      0.4: { text: 'متوسطة', color: '#FFC107' },
-      0.2: { text: 'ضعيفة', color: '#F44336' }
-    };
-    
-    const level = Object.keys(qualities).find(q => quality >= parseFloat(q));
-    const { text, color } = level ? qualities[level] : { text: 'ضعيفة', color: '#F44336' };
-    
-    qualityText.textContent = text;
-    qualityIndicator.style.color = color;
-  }
-}
-
-// إدارة اتصال WebSocket
-ws.onopen = () => {
-  updateStatus("متصل بالخادم", "success");
-  ws.send(JSON.stringify({ 
-    type: "register", 
-    role: "guest",
-    deviceInfo: {
-      browser: navigator.userAgent,
-      resolution: `${window.screen.width}x${window.screen.height}`
-    }
-  }));
-  initCamera();
-};
-
-ws.onclose = () => {
-  updateStatus("انقطع الاتصال بالخادم", "error");
-};
-
-ws.onerror = (error) => {
-  console.error("WebSocket error:", error);
-  updateStatus("خطأ في الاتصال", "error");
-};
-
-ws.onmessage = async ({ data }) => {
-  try {
-    const msg = JSON.parse(data);
-    
-    if (msg.type === "signal" && msg.from === "studio") {
-      await handleSignal(msg);
-    } else if (msg.type === "connection-quality") {
-      updateConnectionQuality(msg.quality);
-    }
-  } catch (err) {
-    console.error("Error handling message:", err);
-  }
-};
-
-// معالجة إشارات WebRTC
-async function handleSignal(msg) {
-  const { sdp, candidate } = msg.payload;
-  
-  if (!peerConnection) {
-    await initPeerConnection();
-  }
-  
-  if (sdp) {
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-  }
-  
-  if (candidate) {
-    try {
-      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (err) {
-      console.error("Error adding ICE candidate:", err);
-    }
-  }
-}
-
-// تهيئة اتصال PeerConnection
-async function initPeerConnection() {
-  peerConnection = new RTCPeerConnection(config);
-  
-  peerConnection.onicecandidate = ({ candidate }) => {
-    if (candidate) {
-      ws.send(JSON.stringify({
-        type: "signal",
-        role: "guest",
-        target: "studio",
-        payload: { candidate }
-      }));
-    }
-  };
-  
-  peerConnection.oniceconnectionstatechange = () => {
-    const state = peerConnection.iceConnectionState;
-    updateStatus(`حالة الاتصال: ${state}`, "info");
-    
-    if (state === "disconnected" || state === "failed") {
-      setTimeout(() => {
-        if (peerConnection.iceConnectionState !== "connected") {
-          updateStatus("محاولة إعادة الاتصال...", "warning");
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ضيف البث المباشر</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            background-color: #f5f5f5;
         }
-      }, 2000);
-    }
-  };
-  
-  // إضافة تيار الوسائط المحلي
-  if (localStream) {
-    localStream.getTracks().forEach(track => {
-      peerConnection.addTrack(track, localStream);
-    });
-  }
-}
-
-// تهيئة الكاميرا
-async function initCamera() {
-  try {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
+        #localVideo {
+            width: 100%;
+            max-width: 600px;
+            background: #000;
+            border-radius: 8px;
+        }
+        .controls {
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 15px;
+            margin: 0 5px;
+            background: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #status {
+            margin: 15px 0;
+            font-weight: bold;
+        }
+        .quality {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+        #quality-indicator {
+            font-size: 24px;
+        }
+    </style>
+</head>
+<body>
+    <h1>واجهة الضيف</h1>
     
-    const constraints = {
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        facingMode: usingFrontCamera ? "user" : "environment"
-      },
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
-      }
-    };
+    <video id="localVideo" autoplay muted></video>
     
-    localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    videoElement.srcObject = localStream;
+    <div class="controls">
+        <button onclick="toggleCamera()">تبديل الكاميرا</button>
+        <button onclick="toggleMic()"><span id="micText">إيقاف الميكروفون</span></button>
+        <button onclick="toggleFullscreen()">ملء الشاشة</button>
+    </div>
     
-    // إنشاء عرض اتصال
-    if (!peerConnection) {
-      await initPeerConnection();
-    }
+    <p id="status">جاري التهيئة...</p>
     
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    
-    ws.send(JSON.stringify({
-      type: "signal",
-      role: "guest",
-      target: "studio",
-      payload: { sdp: offer }
-    }));
-    
-    updateStatus("جاري الاتصال بالاستوديو...", "info");
-  } catch (err) {
-    console.error("Camera error:", err);
-    updateStatus(`خطأ في الكاميرا: ${err.message}`, "error");
-  }
-}
+    <div class="quality">
+        <span>جودة الاتصال:</span>
+        <span id="quality-text">--</span>
+        <span id="quality-indicator">●</span>
+    </div>
 
-// تبديل الكاميرا
-async function toggleCamera() {
-  usingFrontCamera = !usingFrontCamera;
-  await initCamera();
-}
-
-// تبديل الميكروفون
-function toggleMic() {
-  if (!localStream) return;
-  
-  const audioTracks = localStream.getAudioTracks();
-  if (audioTracks.length > 0) {
-    const isMuted = !audioTracks[0].enabled;
-    audioTracks[0].enabled = isMuted;
-    document.getElementById('micText').textContent = isMuted ? 'إيقاف الميكروفون' : 'تشغيل الميكروفون';
-    updateStatus(isMuted ? 'الميكروفون نشط' : 'الميكروفون مكتوم', 'info');
-  }
-}
-
-// ملء الشاشة
-function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch(err => {
-      console.error("Fullscreen error:", err);
-      updateStatus("فشل تفعيل ملء الشاشة", "error");
-    });
-  } else {
-    document.exitFullscreen();
-  }
-}
-
-// تنظيف الموارد عند إغلاق الصفحة
-window.addEventListener('beforeunload', () => {
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.close();
-  }
-  if (localStream) {
-    localStream.getTracks().forEach(track => track.stop());
-  }
-  if (peerConnection) {
-    peerConnection.close();
-  }
-});
-
-// تهيئة الأحداث
-document.addEventListener('DOMContentLoaded', () => {
-  // إضافة معالج لأحداث ملء الشاشة
-  document.addEventListener('fullscreenchange', () => {
-    updateStatus(
-      document.fullscreenElement ? 'وضع ملء الشاشة مفعل' : 'وضع ملء الشاشة معطل',
-      'info'
-    );
-  });
-});
+    <script>
+        // ضع هنا كود JavaScript الذي أرسلته بالضبط
+        // بدءًا من let localStream; وحتى نهاية الكود
+    </script>
+</body>
+</html>

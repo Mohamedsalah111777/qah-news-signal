@@ -8,9 +8,10 @@ const config = {
   iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
 };
 
-ws.onopen = () => {
+ws.onopen = async () => {
   ws.send(JSON.stringify({ type: "register", role: "guest" }));
-  initCamera();
+  await initCamera(); // نشغّل الكاميرا ونبدأ البث
+  await initConnection(); // نبدأ الاتصال
 };
 
 async function initCamera() {
@@ -19,57 +20,58 @@ async function initCamera() {
       localStream.getTracks().forEach(track => track.stop());
     }
 
-    const videoConstraints = {
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      frameRate: { ideal: 30 },
-      facingMode: usingFrontCamera ? "user" : "environment"
+    const constraints = {
+      video: {
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30 },
+        facingMode: usingFrontCamera ? "user" : "environment"
+      },
+      audio: true
     };
 
-    localStream = await navigator.mediaDevices.getUserMedia({
-      video: videoConstraints,
-      audio: true
-    });
-
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
     videoElement.srcObject = localStream;
 
-    if (!peerConnection) {
-      peerConnection = new RTCPeerConnection(config);
-
-      peerConnection.onicecandidate = event => {
-        if (event.candidate) {
-          ws.send(JSON.stringify({
-            type: "signal",
-            role: "guest",
-            target: "studio",
-            payload: { candidate: event.candidate }
-          }));
-        }
-      };
-
-      peerConnection.ontrack = (event) => {
-        // استقبل صوت من الاستوديو
-        const remoteAudio = new Audio();
-        remoteAudio.srcObject = event.streams[0];
-        remoteAudio.play();
-      };
-    }
-
-    localStream.getTracks().forEach(track => {
-      peerConnection.addTrack(track, localStream);
-    });
-
-    const offer = await peerConnection.createOffer();
-    await peerConnection.setLocalDescription(offer);
-    ws.send(JSON.stringify({
-      type: "signal",
-      role: "guest",
-      target: "studio",
-      payload: { sdp: offer }
-    }));
   } catch (err) {
-    console.error("Media error:", err);
+    console.error("Error accessing media devices:", err);
   }
+}
+
+async function initConnection() {
+  peerConnection = new RTCPeerConnection(config);
+
+  // إرسال تراكات الكاميرا والمايك
+  localStream.getTracks().forEach(track => {
+    peerConnection.addTrack(track, localStream);
+  });
+
+  peerConnection.onicecandidate = event => {
+    if (event.candidate) {
+      ws.send(JSON.stringify({
+        type: "signal",
+        role: "guest",
+        target: "studio",
+        payload: { candidate: event.candidate }
+      }));
+    }
+  };
+
+  peerConnection.ontrack = (event) => {
+    const remoteAudio = new Audio();
+    remoteAudio.srcObject = event.streams[0];
+    remoteAudio.play();
+  };
+
+  const offer = await peerConnection.createOffer();
+  await peerConnection.setLocalDescription(offer);
+
+  ws.send(JSON.stringify({
+    type: "signal",
+    role: "guest",
+    target: "studio",
+    payload: { sdp: offer }
+  }));
 }
 
 ws.onmessage = async ({ data }) => {
@@ -86,9 +88,32 @@ ws.onmessage = async ({ data }) => {
   }
 };
 
-function toggleCamera() {
+async function toggleCamera() {
   usingFrontCamera = !usingFrontCamera;
-  initCamera();
+
+  const newStream = await navigator.mediaDevices.getUserMedia({
+    video: {
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 30 },
+      facingMode: usingFrontCamera ? "user" : "environment"
+    },
+    audio: true
+  });
+
+  const videoTrack = newStream.getVideoTracks()[0];
+  const audioTrack = newStream.getAudioTracks()[0];
+
+  const senders = peerConnection.getSenders();
+  const videoSender = senders.find(sender => sender.track.kind === 'video');
+  const audioSender = senders.find(sender => sender.track.kind === 'audio');
+
+  if (videoSender) await videoSender.replaceTrack(videoTrack);
+  if (audioSender) await audioSender.replaceTrack(audioTrack);
+
+  localStream.getTracks().forEach(track => track.stop());
+  localStream = newStream;
+  videoElement.srcObject = localStream;
 }
 
 function toggleFullscreen(videoId) {

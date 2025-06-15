@@ -35,7 +35,6 @@ ws.onmessage = async ({ data }) => {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
         remoteDescriptionSet = true;
 
-        // أضف أي candidates تم تخزينها قبل التوصيف
         for (const c of pendingCandidates) {
           try {
             await peerConnection.addIceCandidate(new RTCIceCandidate(c));
@@ -86,7 +85,6 @@ async function startConnection() {
       });
     }
 
-    // إضافة صوت احتياطي في حال كان جهاز الاستوديو يعزله
     const remoteAudio = new Audio();
     remoteAudio.srcObject = stream;
     remoteAudio.play().catch(err => {
@@ -110,7 +108,6 @@ async function startConnection() {
   };
 
   try {
-    // نضيف مايك الاستوديو لإرسال صوت
     localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     localAudioStream.getTracks().forEach(track => {
       peerConnection.addTrack(track, localAudioStream);

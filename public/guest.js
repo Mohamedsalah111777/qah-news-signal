@@ -93,7 +93,6 @@ ws.onmessage = async ({ data }) => {
 
     if (sdp) {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-      // Apply any stored ICE candidates now
       pendingCandidates.forEach(async c => {
         try {
           await peerConnection.addIceCandidate(new RTCIceCandidate(c));
@@ -112,7 +111,6 @@ ws.onmessage = async ({ data }) => {
           console.warn("Failed to add ICE candidate:", err);
         }
       } else {
-        // Store for later
         pendingCandidates.push(candidate);
         console.log("Stored ICE candidate before remote description set");
       }

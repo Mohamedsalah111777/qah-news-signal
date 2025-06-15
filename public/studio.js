@@ -1,6 +1,9 @@
 let remoteVideo = document.getElementById("remoteVideo");
 let peerConnection;
 let localAudioStream;
+let pendingCandidates = [];
+let remoteDescriptionSet = false;
+
 const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 
 const config = {
@@ -27,6 +30,18 @@ ws.onmessage = async ({ data }) => {
 
     if (sdp) {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+      remoteDescriptionSet = true;
+
+      // إضافة الـ candidates المؤجلة بعد ضبط الـ SDP
+      for (const c of pendingCandidates) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(c));
+        } catch (err) {
+          console.warn("Error adding pending candidate:", err);
+        }
+      }
+      pendingCandidates = [];
+
       const answer = await peerConnection.createAnswer();
       await peerConnection.setLocalDescription(answer);
       ws.send(JSON.stringify({
@@ -35,9 +50,18 @@ ws.onmessage = async ({ data }) => {
         target: "guest",
         payload: { sdp: answer }
       }));
-    }
-    if (candidate) {
-      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    } else if (candidate) {
+      if (remoteDescriptionSet) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.warn("Error adding candidate:", err);
+        }
+      } else {
+        // خزّنه مؤقتًا لحد ما يتعمل setRemoteDescription
+        pendingCandidates.push(candidate);
+        console.log("Candidate received before remoteDescription; storing temporarily");
+      }
     }
   }
 };

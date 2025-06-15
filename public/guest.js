@@ -1,124 +1,34 @@
-// حالة التطبيق
-const appState = {
-  localStream: null,
-  peerConnection: null,
-  usingFrontCamera: true,
-  isMicMuted: false,
-  isConnected: false,
-  reconnectAttempts: 0,
-  maxReconnectAttempts: 5,
+// حالة التطبيق المحسنة
+const appConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
-    { 
-      urls: "turn:global.turn.twilio.com:3478?transport=udp",
-      username: "YOUR_TWILIO_USERNAME",
-      credential: "YOUR_TWILIO_CREDENTIAL"
-    }
-  ]
+    { urls: "stun:global.stun.twilio.com:3478?transport=udp" }
+  ],
+  reconnectOptions: {
+    maxAttempts: 5,
+    baseDelay: 1000,
+    maxDelay: 30000
+  }
 };
 
-// عناصر DOM
-const videoElement = document.getElementById("localVideo");
-const statusElement = document.getElementById("status");
-const qualityElement = document.getElementById("connection-quality");
-
-// اتصال WebSocket مع إعادة الاتصال التلقائي
-let ws;
-function initWebSocket() {
-  ws = new WebSocket("wss://qah-news-signal.onrender.com");
-
-  ws.onopen = () => {
-    updateStatus("متصل بالخادم", "success");
-    appState.reconnectAttempts = 0;
-    ws.send(JSON.stringify({ 
-      type: "register", 
-      role: "guest",
-      metadata: {
-        device: navigator.userAgent,
-        resolution: `${window.screen.width}x${window.screen.height}`
-      }
-    }));
-    initCamera();
-  };
-
-  ws.onclose = () => {
-    updateStatus("انقطع الاتصال بالخادم", "error");
-    if (appState.reconnectAttempts < appState.maxReconnectAttempts) {
-      const delay = Math.min(1000 * Math.pow(2, appState.reconnectAttempts), 30000);
-      setTimeout(initWebSocket, delay);
-      appState.reconnectAttempts++;
-    }
-  };
-
-  ws.onerror = (error) => {
-    console.error("WebSocket error:", error);
-  };
-
-  ws.onmessage = handleWebSocketMessage;
-}
-
-// معالجة رسائل WebSocket
-async function handleWebSocketMessage({ data }) {
-  try {
-    const msg = JSON.parse(data);
+class WebRTCClient {
+  constructor() {
+    this.state = {
+      localStream: null,
+      peerConnection: null,
+      usingFrontCamera: true,
+      isMicMuted: false,
+      connectionStatus: 'disconnected',
+      reconnectCount: 0
+    };
     
-    if (msg.type === "signal" && msg.from === "studio") {
-      const { sdp, candidate } = msg.payload;
-
-      if (sdp) {
-        await appState.peerConnection.setRemoteDescription(
-          new RTCSessionDescription(sdp)
-        );
-        
-        if (sdp.type === "offer") {
-          const answer = await appState.peerConnection.createAnswer();
-          await appState.peerConnection.setLocalDescription(answer);
-          ws.send(JSON.stringify({
-            type: "signal",
-            role: "guest",
-            target: "studio",
-            payload: { sdp: answer }
-          }));
-        }
-      }
-      
-      if (candidate) {
-        try {
-          await appState.peerConnection.addIceCandidate(
-            new RTCIceCandidate(candidate)
-          );
-        } catch (err) {
-          console.error("Error adding ICE candidate:", err);
-        }
-      }
-    }
-    
-    // معالجة رسائل أخرى مثل جودة الاتصال
-    if (msg.type === "connection-quality") {
-      updateConnectionQuality(msg.level);
-    }
-  } catch (err) {
-    console.error("Error handling message:", err);
-  }
-}
-
-// تهيئة الكاميرا والصوت
-async function initCamera() {
-  try {
-    updateStatus("جاري تهيئة الكاميرا...", "warning");
-    
-    // إيقاف أي تدفق سابق
-    if (appState.localStream) {
-      appState.localStream.getTracks().forEach(track => track.stop());
-    }
-
-    const constraints = {
+    this.ws = null;
+    this.mediaConstraints = {
       video: {
         width: { ideal: 1280, max: 1920 },
         height: { ideal: 720, max: 1080 },
         frameRate: { ideal: 30, min: 15 },
-        facingMode: appState.usingFrontCamera ? "user" : "environment"
+        facingMode: 'user'
       },
       audio: {
         echoCancellation: true,
@@ -126,194 +36,298 @@ async function initCamera() {
         autoGainControl: true
       }
     };
-
-    appState.localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    videoElement.srcObject = appState.localStream;
     
-    // إعداد اتصال Peer
-    initPeerConnection();
-    
-    updateStatus("الكاميرا جاهزة", "success");
-  } catch (err) {
-    console.error("Camera initialization error:", err);
-    updateStatus(`خطأ في الكاميرا: ${err.message}`, "error");
-    handleMediaError(err);
-  }
-}
-
-// تهيئة اتصال PeerConnection
-function initPeerConnection() {
-  if (appState.peerConnection) {
-    appState.peerConnection.close();
+    this.initElements();
+    this.initEventListeners();
+    this.connectSignalingServer();
   }
 
-  appState.peerConnection = new RTCPeerConnection({
-    iceServers: appState.iceServers,
-    iceTransportPolicy: "all",
-    bundlePolicy: "max-bundle",
-    rtcpMuxPolicy: "require"
-  });
+  initElements() {
+    this.videoElement = document.getElementById('localVideo');
+    this.statusElement = document.getElementById('status');
+    this.qualityElement = document.getElementById('connection-quality');
+    this.micTextElement = document.getElementById('micText');
+  }
 
-  // إضافة معالجين ICE
-  appState.peerConnection.onicecandidate = ({ candidate }) => {
+  initEventListeners() {
+    window.addEventListener('beforeunload', this.cleanup.bind(this));
+    window.addEventListener('resize', this.handleResize.bind(this));
+  }
+
+  connectSignalingServer() {
+    this.ws = new WebSocket("wss://your-render-app.onrender.com");
+    
+    this.ws.onopen = () => {
+      this.updateStatus("متصل بالخادم", "success");
+      this.registerClient();
+      this.initCamera();
+    };
+    
+    this.ws.onclose = () => this.handleDisconnection();
+    this.ws.onerror = (error) => this.handleError(error);
+    this.ws.onmessage = (event) => this.handleMessage(event);
+  }
+
+  registerClient() {
+    this.ws.send(JSON.stringify({ 
+      type: "register", 
+      role: "guest",
+      metadata: {
+        browser: navigator.userAgent,
+        resolution: `${window.screen.width}x${window.screen.height}`,
+        os: navigator.platform
+      }
+    }));
+  }
+
+  async initCamera() {
+    try {
+      this.updateStatus("جاري تهيئة الكاميرا...", "warning");
+      
+      if (this.state.localStream) {
+        this.stopMediaTracks(this.state.localStream);
+      }
+
+      this.mediaConstraints.video.facingMode = 
+        this.state.usingFrontCamera ? 'user' : 'environment';
+      
+      this.state.localStream = await navigator.mediaDevices.getUserMedia(
+        this.mediaConstraints
+      );
+      
+      this.videoElement.srcObject = this.state.localStream;
+      this.initPeerConnection();
+      this.updateStatus("الكاميرا جاهزة", "success");
+    } catch (error) {
+      this.handleMediaError(error);
+    }
+  }
+
+  initPeerConnection() {
+    if (this.state.peerConnection) {
+      this.state.peerConnection.close();
+    }
+
+    this.state.peerConnection = new RTCPeerConnection({
+      iceServers: appConfig.iceServers,
+      iceTransportPolicy: "all"
+    });
+
+    this.setupPeerEventHandlers();
+    this.addLocalTracks();
+  }
+
+  setupPeerEventHandlers() {
+    this.state.peerConnection.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        this.sendSignal({ candidate });
+      }
+    };
+
+    this.state.peerConnection.oniceconnectionstatechange = () => {
+      const state = this.state.peerConnection.iceConnectionState;
+      this.state.connectionStatus = state;
+      this.updateStatus(`حالة الاتصال: ${state}`, "info");
+      
+      if (state === "disconnected" || state === "failed") {
+        this.scheduleReconnect();
+      }
+    };
+
+    this.state.peerConnection.ontrack = (event) => {
+      const remoteAudio = new Audio();
+      remoteAudio.srcObject = event.streams[0];
+      remoteAudio.play().catch(console.error);
+    };
+  }
+
+  addLocalTracks() {
+    this.state.localStream.getTracks().forEach(track => {
+      this.state.peerConnection.addTrack(track, this.state.localStream);
+    });
+  }
+
+  async handleMessage(event) {
+    try {
+      const msg = JSON.parse(event.data);
+      
+      if (msg.type === "signal" && msg.from === "studio") {
+        await this.processSignal(msg);
+      } else if (msg.type === "connection-quality") {
+        this.updateConnectionQuality(msg.quality);
+      }
+    } catch (error) {
+      console.error("Error handling message:", error);
+    }
+  }
+
+  async processSignal(msg) {
+    const { sdp, candidate } = msg.payload;
+    
+    if (!this.state.peerConnection) {
+      this.initPeerConnection();
+    }
+    
+    if (sdp) {
+      await this.state.peerConnection.setRemoteDescription(
+        new RTCSessionDescription(sdp)
+      );
+      
+      if (sdp.type === "offer") {
+        await this.createAnswer();
+      }
+    }
+    
     if (candidate) {
-      ws.send(JSON.stringify({
+      try {
+        await this.state.peerConnection.addIceCandidate(
+          new RTCIceCandidate(candidate)
+        );
+      } catch (error) {
+        console.error("Error adding ICE candidate:", error);
+      }
+    }
+  }
+
+  async createAnswer() {
+    try {
+      const answer = await this.state.peerConnection.createAnswer();
+      await this.state.peerConnection.setLocalDescription(answer);
+      this.sendSignal({ sdp: answer });
+    } catch (error) {
+      console.error("Error creating answer:", error);
+      this.updateStatus("خطأ في إنشاء الاتصال", "error");
+    }
+  }
+
+  sendSignal(payload) {
+    if (this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
         type: "signal",
         role: "guest",
         target: "studio",
-        payload: { candidate }
+        payload
       }));
     }
-  };
+  }
 
-  appState.peerConnection.oniceconnectionstatechange = () => {
-    const state = appState.peerConnection.iceConnectionState;
-    updateStatus(`حالة الاتصال: ${state}`, "info");
-    
-    if (state === "disconnected" || state === "failed") {
-      reconnectPeer();
+  handleDisconnection() {
+    this.updateStatus("انقطع الاتصال بالخادم", "error");
+    this.scheduleReconnect();
+  }
+
+  scheduleReconnect() {
+    if (this.state.reconnectCount < appConfig.reconnectOptions.maxAttempts) {
+      const delay = Math.min(
+        appConfig.reconnectOptions.baseDelay * Math.pow(2, this.state.reconnectCount),
+        appConfig.reconnectOptions.maxDelay
+      );
+      
+      setTimeout(() => {
+        if (this.state.connectionStatus !== "connected") {
+          this.state.reconnectCount++;
+          this.connectSignalingServer();
+        }
+      }, delay);
     }
-  };
-
-  appState.peerConnection.ontrack = (event) => {
-    const remoteAudio = new Audio();
-    remoteAudio.srcObject = event.streams[0];
-    remoteAudio.play().catch(err => {
-      console.error("Error playing remote audio:", err);
-    });
-  };
-
-  // إضافة التدفق المحلي
-  appState.localStream.getTracks().forEach(track => {
-    appState.peerConnection.addTrack(track, appState.localStream);
-  });
-}
-
-// إنشاء عرض اتصال
-async function createOffer() {
-  try {
-    const offer = await appState.peerConnection.createOffer({
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: false
-    });
-    
-    await appState.peerConnection.setLocalDescription(offer);
-    
-    ws.send(JSON.stringify({
-      type: "signal",
-      role: "guest",
-      target: "studio",
-      payload: { sdp: offer }
-    }));
-  } catch (err) {
-    console.error("Error creating offer:", err);
-    updateStatus("خطأ في إنشاء الاتصال", "error");
   }
-}
 
-// إعادة الاتصال عند الفشل
-function reconnectPeer() {
-  if (appState.reconnectAttempts < appState.maxReconnectAttempts) {
-    updateStatus("جاري إعادة الاتصال...", "warning");
-    setTimeout(() => {
-      initPeerConnection();
-      createOffer();
-      appState.reconnectAttempts++;
-    }, 1000 * appState.reconnectAttempts);
+  toggleCamera() {
+    this.state.usingFrontCamera = !this.state.usingFrontCamera;
+    this.initCamera();
   }
-}
 
-// تبديل الكاميرا
-async function toggleCamera() {
-  appState.usingFrontCamera = !appState.usingFrontCamera;
-  await initCamera();
-}
-
-// تبديل الميكروفون
-function toggleMic() {
-  if (appState.localStream) {
-    const audioTracks = appState.localStream.getAudioTracks();
+  toggleMic() {
+    if (!this.state.localStream) return;
+    
+    const audioTracks = this.state.localStream.getAudioTracks();
     if (audioTracks.length > 0) {
-      appState.isMicMuted = !appState.isMicMuted;
-      audioTracks[0].enabled = !appState.isMicMuted;
-      updateStatus(
-        appState.isMicMuted ? "الميكروفون مكتوم" : "الميكروفون نشط", 
-        "info"
+      this.state.isMicMuted = !this.state.isMicMuted;
+      audioTracks[0].enabled = !this.state.isMicMuted;
+      this.micTextElement.textContent = 
+        this.state.isMicMuted ? 'تشغيل الميكروفون' : 'إيقاف الميكروفون';
+      this.updateStatus(
+        this.state.isMicMuted ? 'الميكروفون مكتوم' : 'الميكروفون نشط', 
+        'info'
       );
     }
   }
-}
 
-// ملء الشاشة
-function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    document.documentElement.requestFullscreen().catch(err => {
-      console.error("Fullscreen error:", err);
-    });
-  } else {
-    document.exitFullscreen();
-  }
-}
-
-// تحديث حالة الواجهة
-function updateStatus(message, type) {
-  if (statusElement) {
-    statusElement.textContent = message;
-    statusElement.style.color = 
-      type === "success" ? "#4CAF50" :
-      type === "error" ? "#F44336" :
-      type === "warning" ? "#FFC107" : "#2196F3";
-  }
-}
-
-// تحديث جودة الاتصال
-function updateConnectionQuality(quality) {
-  if (qualityElement) {
-    const colors = {
-      excellent: "#4CAF50",
-      good: "#8BC34A",
-      fair: "#FFC107",
-      poor: "#F44336"
-    };
-    
-    qualityElement.style.color = colors[quality] || "#FFFFFF";
-    qualityElement.textContent = `جودة الاتصال: ${quality}`;
-  }
-}
-
-// معالجة أخطاء الوسائط
-function handleMediaError(error) {
-  console.error("Media error:", error);
-  
-  if (error.name === "NotAllowedError") {
-    updateStatus("تم رفض الإذن بالوصول إلى الكاميرا/الميكروفون", "error");
-  } else if (error.name === "NotFoundError") {
-    updateStatus("لم يتم العثور على جهاز الكاميرا", "error");
-  } else {
-    updateStatus(`خطأ في الوسائط: ${error.message}`, "error");
-  }
-}
-
-// بدء التطبيق عند تحميل الصفحة
-document.addEventListener("DOMContentLoaded", () => {
-  initWebSocket();
-  
-  // إضافة معالجين لأحداث الصفحة
-  window.addEventListener("beforeunload", () => {
-    if (ws) ws.close();
-    if (appState.peerConnection) appState.peerConnection.close();
-    if (appState.localStream) {
-      appState.localStream.getTracks().forEach(track => track.stop());
+  updateStatus(message, type) {
+    if (this.statusElement) {
+      this.statusElement.textContent = message;
+      this.statusElement.style.color = 
+        type === "success" ? "#4CAF50" :
+        type === "error" ? "#F44336" :
+        type === "warning" ? "#FFC107" : "#2196F3";
     }
-  });
-  
-  // مراقبة تغيير حجم النافذة
-  window.addEventListener("resize", () => {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
+  }
+
+  updateConnectionQuality(quality) {
+    if (this.qualityElement) {
+      const levels = {
+        excellent: { text: "ممتازة", color: "#4CAF50" },
+        good: { text: "جيدة", color: "#8BC34A" },
+        fair: { text: "متوسطة", color: "#FFC107" },
+        poor: { text: "ضعيفة", color: "#F44336" }
+      };
+      
+      const level = levels[quality] || levels.poor;
+      this.qualityElement.textContent = `جودة الاتصال: ${level.text}`;
+      this.qualityElement.style.color = level.color;
+    }
+  }
+
+  handleError(error) {
+    console.error("WebSocket error:", error);
+    this.updateStatus("خطأ في الاتصال بالخادم", "error");
+  }
+
+  handleMediaError(error) {
+    console.error("Media error:", error);
+    
+    let message = "خطأ في الوسائط";
+    if (error.name === "NotAllowedError") {
+      message = "تم رفض الإذن بالوصول إلى الكاميرا/الميكروفون";
+    } else if (error.name === "NotFoundError") {
+      message = "لم يتم العثور على جهاز الكاميرا";
+    }
+    
+    this.updateStatus(`${message}: ${error.message}`, "error");
+  }
+
+  handleResize() {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
         type: "device-update",
         resolution: `${window.innerWidth}x${window.innerHeight}`
       }));
     }
-  });
+  }
+
+  stopMediaTracks(stream) {
+    stream.getTracks().forEach(track => track.stop());
+  }
+
+  cleanup() {
+    if (this.ws) this.ws.close();
+    if (this.state.peerConnection) this.state.peerConnection.close();
+    if (this.state.localStream) this.stopMediaTracks(this.state.localStream);
+  }
+}
+
+// تهيئة التطبيق عند تحميل الصفحة
+document.addEventListener("DOMContentLoaded", () => {
+  const client = new WebRTCClient();
+  
+  // تعريض الدوال للواجهة
+  window.toggleCamera = () => client.toggleCamera();
+  window.toggleMic = () => client.toggleMic();
+  window.toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(console.error);
+    } else {
+      document.exitFullscreen();
+    }
+  };
 });

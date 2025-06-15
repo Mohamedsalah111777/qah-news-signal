@@ -7,9 +7,9 @@ const config = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     {
-      urls: "turn:openrelay.metered.ca:80",
-      username: "openrelayproject",
-      credential: "openrelayproject"
+      urls: "turn:numb.viagenie.ca",
+      username: "webrtc@live.com",
+      credential: "muazkh"
     }
   ]
 };
@@ -58,6 +58,10 @@ async function startConnection() {
         payload: { candidate: event.candidate }
       }));
     }
+  };
+
+  peerConnection.oniceconnectionstatechange = () => {
+    console.log("ICE Connection State:", peerConnection.iceConnectionState);
   };
 
   try {

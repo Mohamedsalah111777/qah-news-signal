@@ -24,33 +24,38 @@ ws.onopen = () => {
 
 ws.onmessage = async ({ data }) => {
   const msg = JSON.parse(data);
+
   if (msg.type === "signal" && msg.from === "guest") {
     const { sdp, candidate } = msg.payload;
 
     if (!peerConnection) await startConnection();
 
     if (sdp) {
-      await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
-      remoteDescriptionSet = true;
+      try {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+        remoteDescriptionSet = true;
 
-      // إضافة أي ICE مخزنة
-      for (const c of pendingCandidates) {
-        try {
-          await peerConnection.addIceCandidate(new RTCIceCandidate(c));
-        } catch (err) {
-          console.warn("Error adding pending candidate:", err);
+        // أضف أي candidates تم تخزينها قبل التوصيف
+        for (const c of pendingCandidates) {
+          try {
+            await peerConnection.addIceCandidate(new RTCIceCandidate(c));
+          } catch (err) {
+            console.warn("Error adding stored ICE candidate:", err);
+          }
         }
-      }
-      pendingCandidates = [];
+        pendingCandidates = [];
 
-      const answer = await peerConnection.createAnswer();
-      await peerConnection.setLocalDescription(answer);
-      ws.send(JSON.stringify({
-        type: "signal",
-        role: "studio",
-        target: "guest",
-        payload: { sdp: answer }
-      }));
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        ws.send(JSON.stringify({
+          type: "signal",
+          role: "studio",
+          target: "guest",
+          payload: { sdp: answer }
+        }));
+      } catch (err) {
+        console.error("Error handling SDP:", err);
+      }
     }
 
     if (candidate) {
@@ -58,7 +63,7 @@ ws.onmessage = async ({ data }) => {
         try {
           await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
         } catch (err) {
-          console.warn("Error adding candidate:", err);
+          console.warn("Error adding ICE candidate:", err);
         }
       } else {
         pendingCandidates.push(candidate);
@@ -73,14 +78,15 @@ async function startConnection() {
 
   peerConnection.ontrack = (event) => {
     const stream = event.streams[0];
-    remoteVideo.srcObject = stream;
 
-    // بدء تشغيل الفيديو تلقائيًا
-    remoteVideo.play().catch(err => {
-      console.warn("Video autoplay blocked:", err);
-    });
+    if (!remoteVideo.srcObject) {
+      remoteVideo.srcObject = stream;
+      remoteVideo.play().catch(err => {
+        console.warn("Autoplay failed on remote video:", err);
+      });
+    }
 
-    // في حالة وصول صوت فقط
+    // إضافة صوت احتياطي في حال كان جهاز الاستوديو يعزله
     const remoteAudio = new Audio();
     remoteAudio.srcObject = stream;
     remoteAudio.play().catch(err => {
@@ -104,11 +110,12 @@ async function startConnection() {
   };
 
   try {
+    // نضيف مايك الاستوديو لإرسال صوت
     localAudioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     localAudioStream.getTracks().forEach(track => {
       peerConnection.addTrack(track, localAudioStream);
     });
   } catch (err) {
-    console.warn("Audio input not available:", err);
+    console.warn("No microphone available or access denied:", err);
   }
 }

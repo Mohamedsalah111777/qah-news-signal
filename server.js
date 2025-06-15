@@ -1,13 +1,19 @@
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const path = require('path');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+import express from 'express';
+import http from 'http';
+import { WebSocketServer } from 'ws';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import os from 'os';
+
+// Fix __dirname in ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocketServer({ server });
 
 const port = process.env.PORT || 3000;
 
@@ -25,12 +31,12 @@ app.use(limiter);
 // تقديم ملفات static مع تحسينات Caching
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d',
-  setHeaders: (res, path) => {
-    if (path.endsWith('.html')) {
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) {
       res.setHeader('Cache-Control', 'no-cache');
     }
   }
-}));
+});
 
 // Routes
 app.get('/', (req, res) => {
@@ -58,12 +64,12 @@ wss.on('connection', (ws, req) => {
 
   ws.on('pong', () => { isAlive = true; });
 
-  ws.on('message', (msg) => {
+  ws.on('message', (data) => {
     try {
-      const data = JSON.parse(msg);
+      const msg = JSON.parse(data);
 
-      if (data.type === 'register') {
-        role = data.role;
+      if (msg.type === 'register') {
+        role = msg.role;
         const clientSet = role === 'guest' ? clients.guests : clients.studios;
         clientSet.add(ws);
         console.log(`Registered: ${role} (Total: ${clientSet.size})`);
@@ -75,15 +81,15 @@ wss.on('connection', (ws, req) => {
           timestamp: Date.now()
         }));
       } 
-      else if (data.type === 'signal') {
-        const targetSet = data.target === 'studio' ? clients.studios : clients.guests;
+      else if (msg.type === 'signal') {
+        const targetSet = msg.target === 'studio' ? clients.studios : clients.guests;
         
         targetSet.forEach((client) => {
           if (client !== ws && client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
               type: 'signal',
               from: role,
-              payload: data.payload
+              payload: msg.payload
             }));
           }
         });
@@ -118,16 +124,9 @@ process.on('unhandledRejection', (err) => {
   console.error('Unhandled Rejection:', err);
 });
 
-server.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-  console.log(`Accessible at:
-  - Local: http://localhost:${port}
-  - Network: http://${getLocalIpAddress()}:${port}`);
-});
-
 // للحصول على عنوان IP المحلي
 function getLocalIpAddress() {
-  const interfaces = require('os').networkInterfaces();
+  const interfaces = os.networkInterfaces();
   for (const devName in interfaces) {
     const iface = interfaces[devName];
     for (let i = 0; i < iface.length; i++) {
@@ -139,3 +138,10 @@ function getLocalIpAddress() {
   }
   return 'localhost';
 }
+
+server.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+  console.log(`Accessible at:
+  - Local: http://localhost:${port}
+  - Network: http://${getLocalIpAddress()}:${port}`);
+});

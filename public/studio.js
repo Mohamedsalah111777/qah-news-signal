@@ -1,310 +1,384 @@
-// حالة التطبيق
-const appState = {
-  peerConnection: null,
-  remoteStream: null,
-  localAudioStream: null,
-  isAudioMuted: false,
-  connectionStatus: 'disconnected',
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
-    { 
-      urls: "turn:global.turn.twilio.com:3478?transport=udp",
-      username: "YOUR_TWILIO_USERNAME",
-      credential: "YOUR_TWILIO_CREDENTIAL"
-    }
-  ],
-  statsInterval: null
-};
+class StudioController {
+  constructor() {
+    this.config = {
+      iceServers: [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:global.stun.twilio.com:3478?transport=udp" },
+        { 
+          urls: "turn:global.turn.twilio.com:3478?transport=udp",
+          username: "YOUR_TWILIO_USERNAME",
+          credential: "YOUR_TWILIO_CREDENTIAL"
+        }
+      ],
+      reconnectPolicy: {
+        maxAttempts: 5,
+        baseDelay: 1000,
+        maxDelay: 30000
+      }
+    };
 
-// عناصر DOM
-const remoteVideo = document.getElementById("remoteVideo");
-const audioButton = document.getElementById("audioButton");
-const audioButtonText = document.getElementById("audioButtonText");
+    this.state = {
+      peerConnection: null,
+      remoteStream: null,
+      localAudioStream: null,
+      isAudioMuted: false,
+      connectionStatus: 'disconnected',
+      reconnectAttempts: 0,
+      statsMonitor: null
+    };
 
-// اتصال WebSocket
-const ws = new WebSocket("wss://qah-news-signal.onrender.com");
-
-ws.onopen = () => {
-  updateStatus("متصل بخادم الإشارة", "success");
-  ws.send(JSON.stringify({ 
-    type: "register", 
-    role: "studio",
-    metadata: {
-      location: window.location.hostname,
-      bandwidth: "high"
-    }
-  }));
-};
-
-ws.onclose = () => {
-  updateStatus("انقطع الاتصال بالخادم", "error");
-  cleanupConnection();
-};
-
-ws.onerror = (error) => {
-  console.error("WebSocket error:", error);
-  updateStatus("خطأ في الاتصال بالخادم", "error");
-};
-
-ws.onmessage = async ({ data }) => {
-  try {
-    const msg = JSON.parse(data);
-    
-    if (msg.type === "signal" && msg.from === "guest") {
-      await handleSignalMessage(msg);
-    } else if (msg.type === "chat") {
-      showChatMessage(msg);
-    }
-  } catch (err) {
-    console.error("Error handling message:", err);
+    this.initElements();
+    this.initEventListeners();
+    this.connectSignalingServer();
   }
-};
 
-// معالجة رسائل الإشارة
-async function handleSignalMessage(msg) {
-  const { sdp, candidate } = msg.payload;
+  initElements() {
+    this.remoteVideo = document.getElementById('remoteVideo');
+    this.audioButton = document.getElementById('audioButton');
+    this.audioButtonText = document.getElementById('audioButtonText');
+    this.qualityBar = document.getElementById('qualityBar');
+    this.qualityText = document.getElementById('qualityText');
+    this.connectionStatus = document.getElementById('connectionStatus');
+    this.connectionStatusText = document.getElementById('connectionStatusText');
+    this.videoStatus = document.getElementById('videoStatus');
+    this.videoStatusText = document.getElementById('videoStatusText');
+    this.audioStatus = document.getElementById('audioStatus');
+    this.audioStatusText = document.getElementById('audioStatusText');
+  }
 
-  if (sdp) {
-    if (!appState.peerConnection) {
-      await initializePeerConnection();
+  initEventListeners() {
+    this.audioButton.addEventListener('click', () => this.toggleAudio());
+    window.addEventListener('beforeunload', () => this.cleanup());
+  }
+
+  connectSignalingServer() {
+    this.ws = new WebSocket("wss://qah-news-signal.onrender.com");
+
+    this.ws.onopen = () => {
+      this.updateStatus("متصل بخادم الإشارة", "success");
+      this.registerStudio();
+    };
+
+    this.ws.onclose = () => this.handleDisconnection();
+    this.ws.onerror = (error) => this.handleError(error);
+    this.ws.onmessage = (event) => this.handleMessage(event);
+  }
+
+  registerStudio() {
+    this.ws.send(JSON.stringify({ 
+      type: "register", 
+      role: "studio",
+      metadata: {
+        location: window.location.hostname,
+        bandwidth: "high",
+        version: "1.0.0"
+      }
+    }));
+  }
+
+  async handleMessage(event) {
+    try {
+      const msg = JSON.parse(event.data);
+      
+      switch(msg.type) {
+        case "signal":
+          if (msg.from === "guest") {
+            await this.processSignal(msg);
+          }
+          break;
+        case "chat":
+          this.showChatMessage(msg);
+          break;
+        case "connection-quality":
+          this.updateConnectionQuality(msg.quality);
+          break;
+      }
+    } catch (error) {
+      this.handleError(error, "معالجة الرسالة");
+    }
+  }
+
+  async processSignal(msg) {
+    const { sdp, candidate } = msg.payload;
+
+    if (sdp) {
+      if (!this.state.peerConnection) {
+        await this.initPeerConnection();
+      }
+      
+      await this.state.peerConnection.setRemoteDescription(
+        new RTCSessionDescription(sdp)
+      );
+      
+      if (sdp.type === "offer") {
+        await this.createAnswer();
+      }
     }
     
-    await appState.peerConnection.setRemoteDescription(
-      new RTCSessionDescription(sdp)
-    );
-    
-    if (sdp.type === "offer") {
-      const answer = await appState.peerConnection.createAnswer({
+    if (candidate) {
+      try {
+        await this.state.peerConnection.addIceCandidate(
+          new RTCIceCandidate(candidate)
+        );
+      } catch (error) {
+        this.handleError(error, "إضافة مرشح ICE");
+      }
+    }
+  }
+
+  async initPeerConnection() {
+    this.cleanupConnection();
+
+    try {
+      this.state.peerConnection = new RTCPeerConnection({
+        iceServers: this.config.iceServers,
+        iceTransportPolicy: "all"
+      });
+
+      this.setupPeerEventHandlers();
+      await this.setupLocalAudio();
+    } catch (error) {
+      this.handleError(error, "تهيئة اتصال Peer");
+    }
+  }
+
+  setupPeerEventHandlers() {
+    this.state.peerConnection.ontrack = (event) => {
+      if (event.streams?.[0]) {
+        this.handleRemoteStream(event.streams[0]);
+      }
+    };
+
+    this.state.peerConnection.oniceconnectionstatechange = () => {
+      const state = this.state.peerConnection.iceConnectionState;
+      this.state.connectionStatus = state;
+      
+      this.updateStatus(`حالة الاتصال: ${state}`, "info");
+      this.updateConnectionUI(state === "connected");
+      
+      if (state === "disconnected" || state === "failed") {
+        this.scheduleReconnect();
+      }
+    };
+
+    this.state.peerConnection.onicecandidate = ({ candidate }) => {
+      if (candidate) {
+        this.sendSignal({ candidate });
+      }
+    };
+  }
+
+  async setupLocalAudio() {
+    try {
+      this.state.localAudioStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        },
+        video: false
+      });
+      
+      this.state.localAudioStream.getTracks().forEach(track => {
+        this.state.peerConnection.addTrack(track, this.state.localAudioStream);
+      });
+    } catch (error) {
+      this.updateStatus("تعطيل الميكروفون المحلي", "warning");
+      console.warn("لا يتوفر ميكروفون:", error);
+    }
+  }
+
+  handleRemoteStream(stream) {
+    this.state.remoteStream = stream;
+    this.remoteVideo.srcObject = stream;
+    this.updateStatus("تم استقبال البث من الضيف", "success");
+    this.startStatsMonitoring();
+  }
+
+  async createAnswer() {
+    try {
+      const answer = await this.state.peerConnection.createAnswer({
         offerToReceiveAudio: true,
         offerToReceiveVideo: true
       });
       
-      await appState.peerConnection.setLocalDescription(answer);
-      
-      ws.send(JSON.stringify({
+      await this.state.peerConnection.setLocalDescription(answer);
+      this.sendSignal({ sdp: answer });
+    } catch (error) {
+      this.handleError(error, "إنشاء إجابة الاتصال");
+    }
+  }
+
+  sendSignal(payload) {
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.send(JSON.stringify({
         type: "signal",
         role: "studio",
         target: "guest",
-        payload: { sdp: answer }
+        payload
       }));
     }
   }
-  
-  if (candidate) {
-    try {
-      await appState.peerConnection.addIceCandidate(
-        new RTCIceCandidate(candidate)
-      );
-    } catch (err) {
-      console.error("Error adding ICE candidate:", err);
-    }
-  }
-}
 
-// تهيئة اتصال PeerConnection
-async function initializePeerConnection() {
-  cleanupConnection();
-  
-  appState.peerConnection = new RTCPeerConnection({
-    iceServers: appState.iceServers,
-    iceTransportPolicy: "all",
-    bundlePolicy: "max-bundle"
-  });
-
-  // معالج الأحداث
-  appState.peerConnection.ontrack = (event) => {
-    if (event.streams && event.streams[0]) {
-      appState.remoteStream = event.streams[0];
-      remoteVideo.srcObject = appState.remoteStream;
-      updateStatus("تم استقبال البث من الضيف", "success");
-      updateConnectionUI(true);
-      startMonitoringStats();
-    }
-  };
-
-  appState.peerConnection.oniceconnectionstatechange = () => {
-    const state = appState.peerConnection.iceConnectionState;
-    appState.connectionStatus = state;
+  startStatsMonitoring() {
+    this.stopStatsMonitoring();
     
-    updateStatus(`حالة الاتصال: ${state}`, "info");
-    updateConnectionUI(state === "connected");
-    
-    if (state === "disconnected" || state === "failed") {
-      setTimeout(() => {
-        if (appState.connectionStatus !== "connected") {
-          reconnect();
-        }
-      }, 2000);
-    }
-  };
-
-  appState.peerConnection.onicecandidate = (event) => {
-    if (event.candidate) {
-      ws.send(JSON.stringify({
-        type: "signal",
-        role: "studio",
-        target: "guest",
-        payload: { candidate: event.candidate }
-      }));
-    }
-  };
-
-  // إضافة تدفق الصوت المحلي
-  try {
-    appState.localAudioStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true
+    this.state.statsMonitor = setInterval(async () => {
+      try {
+        const stats = await this.state.peerConnection.getStats();
+        let audioStats = { packetsLost: 0, totalPackets: 0 };
+        
+        stats.forEach(report => {
+          if (report.type === "inbound-rtp" && report.kind === "audio") {
+            audioStats.packetsLost += report.packetsLost;
+            audioStats.totalPackets += report.packetsReceived + report.packetsLost;
+          }
+        });
+        
+        const packetLoss = audioStats.totalPackets > 0 ? 
+          (audioStats.packetsLost / audioStats.totalPackets) : 0;
+        
+        this.updateConnectionQuality(1 - packetLoss);
+      } catch (error) {
+        console.error("Error getting stats:", error);
       }
-    });
-    
-    appState.localAudioStream.getTracks().forEach(track => {
-      appState.peerConnection.addTrack(track, appState.localAudioStream);
-    });
-  } catch (err) {
-    console.warn("Audio input not available:", err);
-    updateStatus("لم يتم العثور على ميكروفون", "warning");
+    }, 3000);
   }
-}
 
-// مراقبة إحصائيات الاتصال
-function startMonitoringStats() {
-  if (appState.statsInterval) clearInterval(appState.statsInterval);
-  
-  appState.statsInterval = setInterval(async () => {
-    if (!appState.peerConnection) return;
-    
-    try {
-      const stats = await appState.peerConnection.getStats();
-      let audioStats = { packetsLost: 0, totalPackets: 0 };
-      
-      stats.forEach(report => {
-        if (report.type === "inbound-rtp" && report.kind === "audio") {
-          audioStats.packetsLost += report.packetsLost;
-          audioStats.totalPackets += report.packetsReceived + report.packetsLost;
-        }
-      });
-      
-      const packetLoss = audioStats.totalPackets > 0 ? 
-        (audioStats.packetsLost / audioStats.totalPackets) : 0;
-      
-      updateConnectionQuality(1 - packetLoss);
-    } catch (err) {
-      console.error("Error getting stats:", err);
+  stopStatsMonitoring() {
+    if (this.state.statsMonitor) {
+      clearInterval(this.state.statsMonitor);
+      this.state.statsMonitor = null;
     }
-  }, 3000);
-}
-
-// إعادة الاتصال
-function reconnect() {
-  if (appState.connectionStatus === "connected") return;
-  
-  updateStatus("جاري إعادة الاتصال...", "warning");
-  ws.send(JSON.stringify({
-    type: "reconnect",
-    role: "studio"
-  }));
-}
-
-// تنظيف الاتصال
-function cleanupConnection() {
-  if (appState.statsInterval) {
-    clearInterval(appState.statsInterval);
-    appState.statsInterval = null;
   }
-  
-  if (appState.peerConnection) {
-    appState.peerConnection.close();
-    appState.peerConnection = null;
+
+  toggleAudio() {
+    if (!this.state.localAudioStream) return;
+    
+    this.state.isAudioMuted = !this.state.isAudioMuted;
+    this.state.localAudioStream.getAudioTracks().forEach(track => {
+      track.enabled = !this.state.isAudioMuted;
+    });
+    
+    this.audioButtonText.textContent = 
+      this.state.isAudioMuted ? 'تشغيل الصوت' : 'كتم الصوت';
+    this.updateStatus(
+      this.state.isAudioMuted ? 'الميكروفون مكتوم' : 'الميكروفون نشط', 
+      'info'
+    );
   }
-  
-  if (appState.remoteStream) {
-    appState.remoteStream.getTracks().forEach(track => track.stop());
-    appState.remoteStream = null;
+
+  sendMessageToGuest() {
+    const message = prompt('أدخل الرسالة للضيف:', 'شكراً على المشاركة!');
+    if (message) {
+      this.ws.send(JSON.stringify({
+        type: "chat",
+        from: "studio",
+        message: message
+      }));
+      this.updateStatus(`تم إرسال الرسالة: "${message}"`, 'success');
+    }
   }
-  
-  remoteVideo.srcObject = null;
-  updateConnectionUI(false);
-}
 
-// تبديل حالة الميكروفون
-function toggleAudio() {
-  if (!appState.localAudioStream) return;
-  
-  appState.isAudioMuted = !appState.isAudioMuted;
-  appState.localAudioStream.getAudioTracks().forEach(track => {
-    track.enabled = !appState.isAudioMuted;
-  });
-  
-  audioButtonText.textContent = appState.isAudioMuted ? 'تشغيل الصوت' : 'كتم الصوت';
-  updateStatus(appState.isAudioMuted ? 'الميكروفون مكتوم' : 'الميكروفون نشط', 'info');
-}
+  showChatMessage(msg) {
+    console.log(`رسالة من ${msg.from}: ${msg.message}`);
+    this.updateStatus(`رسالة جديدة من الضيف`, 'info');
+    // يمكن إضافة واجهة عرض الرسائل هنا
+  }
 
-// إرسال رسالة للضيف
-function sendMessageToGuest() {
-  const message = prompt('أدخل الرسالة للضيف:', 'شكراً على المشاركة!');
-  if (message) {
-    ws.send(JSON.stringify({
-      type: "chat",
-      from: "studio",
-      message: message
-    }));
-    updateStatus(`تم إرسال الرسالة: "${message}"`, 'success');
+  handleDisconnection() {
+    this.updateStatus("انقطع الاتصال بالخادم", "error");
+    this.scheduleReconnect();
+  }
+
+  scheduleReconnect() {
+    if (this.state.reconnectAttempts < this.config.reconnectPolicy.maxAttempts) {
+      const delay = Math.min(
+        this.config.reconnectPolicy.baseDelay * Math.pow(2, this.state.reconnectAttempts),
+        this.config.reconnectPolicy.maxDelay
+      );
+      
+      setTimeout(() => {
+        if (this.state.connectionStatus !== "connected") {
+          this.state.reconnectAttempts++;
+          this.connectSignalingServer();
+        }
+      }, delay);
+    }
+  }
+
+  handleError(error, context = "") {
+    console.error(`Error ${context}:`, error);
+    this.updateStatus(`خطأ: ${context}`, "error");
+  }
+
+  updateConnectionQuality(quality) {
+    if (this.qualityBar && this.qualityText) {
+      this.qualityBar.style.transform = `scaleX(${quality})`;
+      this.qualityText.textContent = `${Math.round(quality * 100)}%`;
+    }
+  }
+
+  updateConnectionUI(isConnected) {
+    const indicators = [
+      { element: this.connectionStatus, text: this.connectionStatusText, value: isConnected ? 'متصل' : 'غير متصل' },
+      { element: this.videoStatus, text: this.videoStatusText, value: isConnected ? 'الفيديو نشط' : 'لا يوجد فيديو' },
+      { element: this.audioStatus, text: this.audioStatusText, value: isConnected ? 'الصوت نشط' : 'لا يوجد صوت' }
+    ];
+
+    indicators.forEach(({ element, text, value }) => {
+      element.classList.toggle('active', isConnected);
+      text.textContent = value;
+    });
+  }
+
+  updateStatus(message, type) {
+    console.log(`[${type}] ${message}`);
+    // يمكن إضافة عرض الرسائل في الواجهة
+  }
+
+  cleanupConnection() {
+    this.stopStatsMonitoring();
+    
+    if (this.state.peerConnection) {
+      this.state.peerConnection.close();
+      this.state.peerConnection = null;
+    }
+    
+    if (this.state.remoteStream) {
+      this.state.remoteStream.getTracks().forEach(track => track.stop());
+      this.state.remoteStream = null;
+    }
+    
+    this.remoteVideo.srcObject = null;
+    this.updateConnectionUI(false);
+  }
+
+  cleanup() {
+    this.cleanupConnection();
+    
+    if (this.ws?.readyState === WebSocket.OPEN) {
+      this.ws.close();
+    }
+    
+    if (this.state.localAudioStream) {
+      this.state.localAudioStream.getTracks().forEach(track => track.stop());
+    }
   }
 }
 
-// عرض رسالة دردشة
-function showChatMessage(msg) {
-  // يمكن تنفيذ واجهة عرض الرسائل هنا
-  console.log(`رسالة من ${msg.from}: ${msg.message}`);
-  updateStatus(`رسالة جديدة من الضيف`, 'info');
-}
-
-// تحديث جودة الاتصال في الواجهة
-function updateConnectionQuality(quality) {
-  const qualityBar = document.getElementById('qualityBar');
-  const qualityText = document.getElementById('qualityText');
-  
-  if (qualityBar && qualityText) {
-    qualityBar.style.transform = `scaleX(${quality})`;
-    qualityText.textContent = `${Math.round(quality * 100)}%`;
-  }
-}
-
-// تحديث واجهة حالة الاتصال
-function updateConnectionUI(isConnected) {
-  const connectionStatus = document.getElementById('connectionStatus');
-  const videoStatus = document.getElementById('videoStatus');
-  const audioStatus = document.getElementById('audioStatus');
-  
-  if (isConnected) {
-    connectionStatus.classList.add('active');
-    videoStatus.classList.add('active');
-    audioStatus.classList.add('active');
-  } else {
-    connectionStatus.classList.remove('active');
-    videoStatus.classList.remove('active');
-    audioStatus.classList.remove('active');
-  }
-}
-
-// تحديث حالة التطبيق
-function updateStatus(message, type) {
-  console.log(`[${type}] ${message}`);
-  // يمكن إضافة عرض الرسائل للمستخدم
-}
-
-// تنظيف عند إغلاق الصفحة
-window.addEventListener('beforeunload', () => {
-  cleanupConnection();
-  if (ws.readyState === WebSocket.OPEN) {
-    ws.close();
-  }
-});
-
-// تهيئة الأزرار
+// تهيئة التطبيق عند تحميل الصفحة
 document.addEventListener('DOMContentLoaded', () => {
-  audioButton.addEventListener('click', toggleAudio);
+  const studio = new StudioController();
+  
+  // تعريض الوظائف للواجهة
+  window.toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(console.error);
+    } else {
+      document.exitFullscreen();
+    }
+  };
+  
+  window.sendMessageToGuest = () => studio.sendMessageToGuest();
 });

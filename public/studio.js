@@ -10,9 +10,9 @@ const config = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     {
-      urls: "turn:numb.viagenie.ca",
-      username: "webrtc@live.com",
-      credential: "muazkh"
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject"
     }
   ]
 };
@@ -32,7 +32,7 @@ ws.onmessage = async ({ data }) => {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
       remoteDescriptionSet = true;
 
-      // إضافة الـ candidates المؤجلة بعد ضبط الـ SDP
+      // إضافة الـ ICE Candidates المؤجلة
       for (const c of pendingCandidates) {
         try {
           await peerConnection.addIceCandidate(new RTCIceCandidate(c));
@@ -50,7 +50,9 @@ ws.onmessage = async ({ data }) => {
         target: "guest",
         payload: { sdp: answer }
       }));
-    } else if (candidate) {
+    }
+
+    if (candidate) {
       if (remoteDescriptionSet) {
         try {
           await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
@@ -58,9 +60,8 @@ ws.onmessage = async ({ data }) => {
           console.warn("Error adding candidate:", err);
         }
       } else {
-        // خزّنه مؤقتًا لحد ما يتعمل setRemoteDescription
         pendingCandidates.push(candidate);
-        console.log("Candidate received before remoteDescription; storing temporarily");
+        console.log("Stored ICE candidate before remote description set");
       }
     }
   }

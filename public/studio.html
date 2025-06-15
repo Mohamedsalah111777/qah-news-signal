@@ -206,19 +206,19 @@
     </div>
     
     <div class="controls">
-      <button onclick="toggleFullscreen()">
+      <button id="fullscreenBtn">
         <svg class="icon" viewBox="0 0 24 24">
           <path fill="currentColor" d="M5,5H10V7H7V10H5V5M14,5H19V10H17V7H14V5M17,14H19V19H14V17H17V14M10,17V19H5V14H7V17H10Z"/>
         </svg>
         ملء الشاشة
       </button>
-      <button onclick="toggleAudio()" id="audioButton">
+      <button id="audioBtn">
         <svg class="icon" viewBox="0 0 24 24">
           <path fill="currentColor" d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z"/>
         </svg>
-        <span id="audioButtonText">كتم الصوت</span>
+        <span id="audioBtnText">كتم الصوت</span>
       </button>
-      <button onclick="sendMessageToGuest()">
+      <button id="messageBtn">
         <svg class="icon" viewBox="0 0 24 24">
           <path fill="currentColor" d="M10,9V5L3,12L10,19V14.9C15,14.9 18.5,16.5 21,20C20,15 17,10 10,9Z"/>
         </svg>
@@ -242,118 +242,19 @@
     </div>
   </div>
 
+  <!-- ملف JavaScript المنفصل -->
+  <script src="studio.js"></script>
+  
+  <!-- تهيئة أولية -->
   <script>
-    // حالة العناصر
-    let isAudioMuted = false;
-    let connectionStats = {
-      quality: 0.7,
-      video: false,
-      audio: false,
-      connected: false
-    };
-    
-    // ملء الشاشة
-    function toggleFullscreen() {
-      const video = document.getElementById('remoteVideo');
+    // هذه مجرد أمثلة، سيتم استبدالها بالكود الكامل في studio.js
+    document.getElementById('fullscreenBtn').addEventListener('click', () => {
       if (!document.fullscreenElement) {
-        video.requestFullscreen().catch(err => {
-          console.error('Fullscreen error:', err);
-          updateStatus('فشل تفعيل ملء الشاشة', 'error');
-        });
+        document.documentElement.requestFullscreen().catch(console.error);
       } else {
         document.exitFullscreen();
       }
-    }
-    
-    // تبديل الصوت
-    function toggleAudio() {
-      const video = document.getElementById('remoteVideo');
-      isAudioMuted = !isAudioMuted;
-      video.muted = isAudioMuted;
-      document.getElementById('audioButtonText').textContent = 
-        isAudioMuted ? 'تشغيل الصوت' : 'كتم الصوت';
-      updateStatus(isAudioMuted ? 'الصوت مكتوم' : 'الصوت نشط', 'info');
-    }
-    
-    // إرسال رسالة للضيف (وهمي حالياً)
-    function sendMessageToGuest() {
-      const message = prompt('أدخل الرسالة للضيف:', 'شكراً على المشاركة!');
-      if (message) {
-        updateStatus(`تم إرسال الرسالة: "${message}"`, 'success');
-        // هنا سيتم إرسال الرسالة عبر WebSocket
-      }
-    }
-    
-    // تحديث حالة العناصر
-    function updateStatus(message, type) {
-      console.log(`[${type}] ${message}`);
-      // يمكن إضافة عرض الرسائل للمستخدم إذا لزم الأمر
-    }
-    
-    // تحديث واجهة المستخدم بناءً على حالة الاتصال
-    function updateUI() {
-      const { quality, video, audio, connected } = connectionStats;
-      
-      // جودة الاتصال
-      document.getElementById('qualityBar').style.transform = `scaleX(${quality})`;
-      document.getElementById('qualityText').textContent = `${Math.round(quality * 100)}%`;
-      
-      // حالة الاتصال
-      const connStatus = document.getElementById('connectionStatus');
-      const connText = document.getElementById('connectionStatusText');
-      if (connected) {
-        connStatus.classList.add('active');
-        connText.textContent = 'متصل';
-      } else {
-        connStatus.classList.remove('active');
-        connText.textContent = 'غير متصل';
-      }
-      
-      // حالة الفيديو
-      const vidStatus = document.getElementById('videoStatus');
-      const vidText = document.getElementById('videoStatusText');
-      if (video) {
-        vidStatus.classList.add('active');
-        vidText.textContent = 'الفيديو نشط';
-      } else {
-        vidStatus.classList.remove('active');
-        vidText.textContent = 'لا يوجد فيديو';
-      }
-      
-      // حالة الصوت
-      const audStatus = document.getElementById('audioStatus');
-      const audText = document.getElementById('audioStatusText');
-      if (audio) {
-        audStatus.classList.add('active');
-        audText.textContent = 'الصوت نشط';
-      } else {
-        audStatus.classList.remove('active');
-        audText.textContent = 'لا يوجد صوت';
-      }
-    }
-    
-    // محاكاة بيانات الاتصال (ستستبدل بالبيانات الحقيقية من WebRTC)
-    function simulateConnectionData() {
-      setInterval(() => {
-        connectionStats = {
-          quality: Math.min(0.3 + Math.random() * 0.7, 0.95),
-          video: Math.random() > 0.3,
-          audio: Math.random() > 0.3,
-          connected: true
-        };
-        updateUI();
-      }, 3000);
-    }
-    
-    // بدء التشغيل
-    document.addEventListener('DOMContentLoaded', () => {
-      updateUI();
-      simulateConnectionData();
-      
-      // السماح بالملء الشاشة عند النقر على الفيديو
-      document.getElementById('remoteVideo').addEventListener('click', toggleFullscreen);
     });
   </script>
-  <script src="studio.js"></script>
 </body>
 </html>

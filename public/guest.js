@@ -1,6 +1,9 @@
 let localStream;
 let peerConnection;
 let usingFrontCamera = true;
+let videoSender;
+let audioSender;
+
 const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 const videoElement = document.getElementById("localVideo");
 
@@ -10,54 +13,43 @@ const config = {
 
 ws.onopen = async () => {
   ws.send(JSON.stringify({ type: "register", role: "guest" }));
-  await initCamera(); // نشغّل الكاميرا ونبدأ البث
-  await initConnection(); // نبدأ الاتصال
+  await initCamera();
+  await initPeerConnection();
 };
 
 async function initCamera() {
-  try {
-    if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
-    }
-
-    const constraints = {
-      video: {
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-        frameRate: { ideal: 30 },
-        facingMode: usingFrontCamera ? "user" : "environment"
-      },
-      audio: true
-    };
-
-    localStream = await navigator.mediaDevices.getUserMedia(constraints);
-    videoElement.srcObject = localStream;
-
-  } catch (err) {
-    console.error("Error accessing media devices:", err);
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
   }
+
+  localStream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: usingFrontCamera ? "user" : "environment", width: 1920, height: 1080, frameRate: 30 },
+    audio: true
+  });
+  videoElement.srcObject = localStream;
 }
 
-async function initConnection() {
+async function initPeerConnection() {
   peerConnection = new RTCPeerConnection(config);
 
-  // إرسال تراكات الكاميرا والمايك
   localStream.getTracks().forEach(track => {
-    peerConnection.addTrack(track, localStream);
+    const sender = peerConnection.addTrack(track, localStream);
+    if (track.kind === 'video') videoSender = sender;
+    if (track.kind === 'audio') audioSender = sender;
   });
 
-  peerConnection.onicecandidate = event => {
-    if (event.candidate) {
+  peerConnection.onicecandidate = e => {
+    if (e.candidate) {
       ws.send(JSON.stringify({
         type: "signal",
         role: "guest",
         target: "studio",
-        payload: { candidate: event.candidate }
+        payload: { candidate: e.candidate }
       }));
     }
   };
 
-  peerConnection.ontrack = (event) => {
+  peerConnection.ontrack = event => {
     const remoteAudio = new Audio();
     remoteAudio.srcObject = event.streams[0];
     remoteAudio.play();
@@ -92,37 +84,17 @@ async function toggleCamera() {
   usingFrontCamera = !usingFrontCamera;
 
   const newStream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      frameRate: { ideal: 30 },
-      facingMode: usingFrontCamera ? "user" : "environment"
-    },
+    video: { facingMode: usingFrontCamera ? "user" : "environment", width: 1920, height: 1080, frameRate: 30 },
     audio: true
   });
 
-  const videoTrack = newStream.getVideoTracks()[0];
-  const audioTrack = newStream.getAudioTracks()[0];
+  const newVideoTrack = newStream.getVideoTracks()[0];
+  const newAudioTrack = newStream.getAudioTracks()[0];
 
-  const senders = peerConnection.getSenders();
-  const videoSender = senders.find(sender => sender.track.kind === 'video');
-  const audioSender = senders.find(sender => sender.track.kind === 'audio');
-
-  if (videoSender) await videoSender.replaceTrack(videoTrack);
-  if (audioSender) await audioSender.replaceTrack(audioTrack);
+  await videoSender.replaceTrack(newVideoTrack);
+  await audioSender.replaceTrack(newAudioTrack);
 
   localStream.getTracks().forEach(track => track.stop());
   localStream = newStream;
   videoElement.srcObject = localStream;
-}
-
-function toggleFullscreen(videoId) {
-  const video = document.getElementById(videoId);
-  if (!document.fullscreenElement) {
-    video.requestFullscreen().catch(err => {
-      console.error(`Error attempting fullscreen: ${err.message}`);
-    });
-  } else {
-    document.exitFullscreen();
-  }
 }

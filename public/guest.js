@@ -8,9 +8,9 @@ const config = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     {
-      urls: "turn:numb.viagenie.ca",
-      username: "webrtc@live.com",
-      credential: "muazkh"
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject"
     }
   ]
 };
@@ -90,8 +90,13 @@ ws.onmessage = async ({ data }) => {
     if (sdp) {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
     }
-    if (candidate) {
-      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+
+    if (candidate && peerConnection.remoteDescription) {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (err) {
+        console.warn("Failed to add ICE candidate:", err);
+      }
     }
   }
 };

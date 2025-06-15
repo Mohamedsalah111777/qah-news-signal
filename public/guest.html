@@ -1,292 +1,239 @@
-<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <meta name="description" content="صفحة الضيف - بث مباشر لبرنامج QAH News">
-  <title>ضيف QAH نيوز | البث المباشر</title>
-  <style>
-    :root {
-      --primary-color: #0066cc;
-      --hover-color: #004d99;
-      --background-color: #111;
-      --text-color: #fff;
-    }
-    
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-    
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      margin: 0;
-      background: var(--background-color);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100vh;
-      overflow: hidden;
-      color: var(--text-color);
-    }
-    
-    .video-container {
-      position: relative;
-      width: 100%;
-      height: 100%;
-    }
-    
-    video {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      background: #000;
-      transform: scaleX(-1); /* مرآة للكاميرا الأمامية */
-    }
-    
-    #controls {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      z-index: 100;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    
-    button {
-      padding: 12px 20px;
-      background-color: var(--primary-color);
-      color: white;
-      border: none;
-      border-radius: 30px;
-      cursor: pointer;
-      font-size: 16px;
-      font-weight: bold;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      transition: all 0.3s ease;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-    }
-    
-    button:hover {
-      background-color: var(--hover-color);
-      transform: translateY(-2px);
-    }
-    
-    button:active {
-      transform: translateY(0);
-    }
-    
-    .icon {
-      width: 20px;
-      height: 20px;
-    }
-    
-    #status {
-      position: absolute;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      background-color: rgba(0, 0, 0, 0.7);
-      padding: 10px 20px;
-      border-radius: 20px;
-      font-size: 14px;
-    }
-    
-    #connection-quality {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      background-color: rgba(0, 0, 0, 0.7);
-      padding: 5px 10px;
-      border-radius: 10px;
-      font-size: 12px;
-    }
-    
-    @media (max-width: 768px) {
-      #controls {
-        flex-direction: row;
-        bottom: 20px;
-        top: auto;
-        left: 50%;
-        transform: translateX(-50%);
-      }
-      
-      button {
-        padding: 10px 15px;
-        font-size: 14px;
-      }
-    }
-  </style>
-</head>
-<body>
-  <div class="video-container">
-    <video id="localVideo" autoplay playsinline muted></video>
-    
-    <div id="controls">
-      <button onclick="toggleCamera()">
-        <svg class="icon" viewBox="0 0 24 24">
-          <path fill="currentColor" d="M4,4H7L9,2H15L17,4H20A2,2 0 0,1 22,6V18A2,2 0 0,1 20,20H4A2,2 0 0,1 2,18V6A2,2 0 0,1 4,4M12,7A5,5 0 0,0 7,12A5,5 0 0,0 12,17A5,5 0 0,0 17,12A5,5 0 0,0 12,7M12,9A3,3 0 0,1 15,12A3,3 0 0,1 12,15A3,3 0 0,1 9,12A3,3 0 0,1 12,9Z" />
-        </svg>
-        تبديل الكاميرا
-      </button>
-      <button onclick="toggleMic()">
-        <svg class="icon" viewBox="0 0 24 24">
-          <path fill="currentColor" d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,17.93V21H11V17.93C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
-        </svg>
-        <span id="micText">إيقاف الميكروفون</span>
-      </button>
-      <button onclick="toggleFullscreen()">
-        <svg class="icon" viewBox="0 0 24 24">
-          <path fill="currentColor" d="M5,5H10V7H7V10H5V5M14,5H19V10H17V7H14V5M17,14H19V19H14V17H17V14M10,17V19H5V14H7V17H10Z" />
-        </svg>
-        ملء الشاشة
-      </button>
-    </div>
-    
-    <div id="connection-quality">
-      <span id="quality-indicator">●</span> جودة الاتصال: <span id="quality-text">جيدة</span>
-    </div>
-    
-    <div id="status">
-      جاهز للاتصال...
-    </div>
-  </div>
+let localStream;
+let peerConnection;
+let usingFrontCamera = true;
+const ws = new WebSocket("wss://your-render-app.onrender.com");
+const videoElement = document.getElementById("localVideo");
 
-  <script src="guest.js"></script>
-  <script>
-    // متغيرات حالة الجهاز
-    let isFrontCamera = true;
-    let isMicMuted = true; // مبتدئ كتم حسب السكربت الأساسي
-    let currentStream = null;
+const config = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:global.stun.twilio.com:3478?transport=udp" }
+  ]
+};
+
+// تحديث حالة الواجهة
+function updateStatus(message, type) {
+  const statusElement = document.getElementById('status');
+  if (statusElement) {
+    statusElement.textContent = message;
+    statusElement.style.color = 
+      type === 'success' ? '#4CAF50' :
+      type === 'error' ? '#F44336' :
+      type === 'warning' ? '#FFC107' : '#2196F3';
+  }
+}
+
+// تحديث جودة الاتصال
+function updateConnectionQuality(quality) {
+  const qualityText = document.getElementById('quality-text');
+  const qualityIndicator = document.getElementById('quality-indicator');
+  
+  if (qualityText && qualityIndicator) {
+    const qualities = {
+      0.8: { text: 'ممتازة', color: '#4CAF50' },
+      0.6: { text: 'جيدة', color: '#8BC34A' },
+      0.4: { text: 'متوسطة', color: '#FFC107' },
+      0.2: { text: 'ضعيفة', color: '#F44336' }
+    };
     
-    // عناصر DOM
-    const localVideo = document.getElementById('localVideo');
-    const micText = document.getElementById('micText');
-    const statusElement = document.getElementById('status');
-    const qualityIndicator = document.getElementById('quality-indicator');
-    const qualityText = document.getElementById('quality-text');
+    const level = Object.keys(qualities).find(q => quality >= parseFloat(q));
+    const { text, color } = level ? qualities[level] : { text: 'ضعيفة', color: '#F44336' };
     
-    // بدء تشغيل الكاميرا
-    async function startCamera() {
-      try {
-        const constraints = {
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: isFrontCamera ? 'user' : 'environment'
-          },
-          audio: true
-        };
-        
-        const stream = await navigator.mediaDevices.getUserMedia(constraints);
-        localVideo.srcObject = stream;
-        currentStream = stream;
-        
-        updateStatus('الكاميرا نشطة', 'success');
-        
-        // إضافة معالجات لأحداث الكاميرا
-        stream.getVideoTracks()[0].onended = () => {
-          updateStatus('تم إيقاف الكاميرا', 'error');
-        };
-        
-        return stream;
-      } catch (err) {
-        console.error('حدث خطأ في تشغيل الكاميرا:', err);
-        updateStatus(`خطأ: ${err.message}`, 'error');
-        throw err;
-      }
+    qualityText.textContent = text;
+    qualityIndicator.style.color = color;
+  }
+}
+
+// إدارة اتصال WebSocket
+ws.onopen = () => {
+  updateStatus("متصل بالخادم", "success");
+  ws.send(JSON.stringify({ 
+    type: "register", 
+    role: "guest",
+    deviceInfo: {
+      browser: navigator.userAgent,
+      resolution: `${window.screen.width}x${window.screen.height}`
     }
+  }));
+  initCamera();
+};
+
+ws.onclose = () => {
+  updateStatus("انقطع الاتصال بالخادم", "error");
+};
+
+ws.onerror = (error) => {
+  console.error("WebSocket error:", error);
+  updateStatus("خطأ في الاتصال", "error");
+};
+
+ws.onmessage = async ({ data }) => {
+  try {
+    const msg = JSON.parse(data);
     
-    // تبديل الكاميرا
-    async function toggleCamera() {
-      if (!currentStream) return;
-      
-      try {
-        updateStatus('جاري تبديل الكاميرا...', 'warning');
-        
-        // إيقاف المسار الحالي
-        currentStream.getTracks().forEach(track => track.stop());
-        
-        isFrontCamera = !isFrontCamera;
-        await startCamera();
-      } catch (err) {
-        console.error('خطأ في تبديل الكاميرا:', err);
-        updateStatus('فشل تبديل الكاميرا', 'error');
-      }
+    if (msg.type === "signal" && msg.from === "studio") {
+      await handleSignal(msg);
+    } else if (msg.type === "connection-quality") {
+      updateConnectionQuality(msg.quality);
     }
-    
-    // تبديل الميكروفون
-    function toggleMic() {
-      if (!currentStream) return;
-      
-      const audioTracks = currentStream.getAudioTracks();
-      if (audioTracks.length > 0) {
-        isMicMuted = !isMicMuted;
-        audioTracks[0].enabled = !isMicMuted;
-        micText.textContent = isMicMuted ? 'تشغيل الميكروفون' : 'إيقاف الميكروفون';
-        updateStatus(isMicMuted ? 'الميكروفون مكتوم' : 'الميكروفون نشط', 'info');
-      }
+  } catch (err) {
+    console.error("Error handling message:", err);
+  }
+};
+
+// معالجة إشارات WebRTC
+async function handleSignal(msg) {
+  const { sdp, candidate } = msg.payload;
+  
+  if (!peerConnection) {
+    await initPeerConnection();
+  }
+  
+  if (sdp) {
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+  }
+  
+  if (candidate) {
+    try {
+      await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (err) {
+      console.error("Error adding ICE candidate:", err);
     }
-    
-    // ملء الشاشة
-    function toggleFullscreen() {
-      if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen().catch(err => {
-          console.error('خطأ في ملء الشاشة:', err);
-          updateStatus('فشل ملء الشاشة', 'error');
-        });
-      } else {
-        document.exitFullscreen();
-      }
+  }
+}
+
+// تهيئة اتصال PeerConnection
+async function initPeerConnection() {
+  peerConnection = new RTCPeerConnection(config);
+  
+  peerConnection.onicecandidate = ({ candidate }) => {
+    if (candidate) {
+      ws.send(JSON.stringify({
+        type: "signal",
+        role: "guest",
+        target: "studio",
+        payload: { candidate }
+      }));
     }
+  };
+  
+  peerConnection.oniceconnectionstatechange = () => {
+    const state = peerConnection.iceConnectionState;
+    updateStatus(`حالة الاتصال: ${state}`, "info");
     
-    // تحديث حالة الاتصال
-    function updateStatus(message, type) {
-      statusElement.textContent = message;
-      statusElement.style.color = 
-        type === 'success' ? '#4CAF50' :
-        type === 'error' ? '#F44336' :
-        type === 'warning' ? '#FFC107' : '#2196F3';
+    if (state === "disconnected" || state === "failed") {
+      setTimeout(() => {
+        if (peerConnection.iceConnectionState !== "connected") {
+          updateStatus("محاولة إعادة الاتصال...", "warning");
+        }
+      }, 2000);
     }
-    
-    // محاكاة جودة الاتصال (ستكون حقيقية في السكربت الرئيسي)
-    function simulateConnectionQuality() {
-      const qualities = [
-        { level: 'ممتازة', color: '#4CAF50' },
-        { level: 'جيدة', color: '#8BC34A' },
-        { level: 'متوسطة', color: '#FFC107' },
-        { level: 'ضعيفة', color: '#F44336' }
-      ];
-      
-      setInterval(() => {
-        const randomQuality = qualities[Math.floor(Math.random() * qualities.length)];
-        qualityIndicator.style.color = randomQuality.color;
-        qualityText.textContent = randomQuality.level;
-      }, 5000);
-    }
-    
-    // بدء التشغيل عند تحميل الصفحة
-    window.addEventListener('load', async () => {
-      try {
-        await startCamera();
-        simulateConnectionQuality();
-        
-        // إضافة معالجات لأحداث ملء الشاشة
-        document.addEventListener('fullscreenchange', () => {
-          updateStatus(
-            document.fullscreenElement ? 'وضع ملء الشاشة مفعل' : 'وضع ملء الشاشة معطل',
-            'info'
-          );
-        });
-      } catch (err) {
-        console.error('فشل بدء التشغيل:', err);
-      }
+  };
+  
+  // إضافة تيار الوسائط المحلي
+  if (localStream) {
+    localStream.getTracks().forEach(track => {
+      peerConnection.addTrack(track, localStream);
     });
-  </script>
-</body>
-</html>
+  }
+}
+
+// تهيئة الكاميرا
+async function initCamera() {
+  try {
+    if (localStream) {
+      localStream.getTracks().forEach(track => track.stop());
+    }
+    
+    const constraints = {
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        facingMode: usingFrontCamera ? "user" : "environment"
+      },
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    };
+    
+    localStream = await navigator.mediaDevices.getUserMedia(constraints);
+    videoElement.srcObject = localStream;
+    
+    // إنشاء عرض اتصال
+    if (!peerConnection) {
+      await initPeerConnection();
+    }
+    
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    
+    ws.send(JSON.stringify({
+      type: "signal",
+      role: "guest",
+      target: "studio",
+      payload: { sdp: offer }
+    }));
+    
+    updateStatus("جاري الاتصال بالاستوديو...", "info");
+  } catch (err) {
+    console.error("Camera error:", err);
+    updateStatus(`خطأ في الكاميرا: ${err.message}`, "error");
+  }
+}
+
+// تبديل الكاميرا
+async function toggleCamera() {
+  usingFrontCamera = !usingFrontCamera;
+  await initCamera();
+}
+
+// تبديل الميكروفون
+function toggleMic() {
+  if (!localStream) return;
+  
+  const audioTracks = localStream.getAudioTracks();
+  if (audioTracks.length > 0) {
+    const isMuted = !audioTracks[0].enabled;
+    audioTracks[0].enabled = isMuted;
+    document.getElementById('micText').textContent = isMuted ? 'إيقاف الميكروفون' : 'تشغيل الميكروفون';
+    updateStatus(isMuted ? 'الميكروفون نشط' : 'الميكروفون مكتوم', 'info');
+  }
+}
+
+// ملء الشاشة
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => {
+      console.error("Fullscreen error:", err);
+      updateStatus("فشل تفعيل ملء الشاشة", "error");
+    });
+  } else {
+    document.exitFullscreen();
+  }
+}
+
+// تنظيف الموارد عند إغلاق الصفحة
+window.addEventListener('beforeunload', () => {
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.close();
+  }
+  if (localStream) {
+    localStream.getTracks().forEach(track => track.stop());
+  }
+  if (peerConnection) {
+    peerConnection.close();
+  }
+});
+
+// تهيئة الأحداث
+document.addEventListener('DOMContentLoaded', () => {
+  // إضافة معالج لأحداث ملء الشاشة
+  document.addEventListener('fullscreenchange', () => {
+    updateStatus(
+      document.fullscreenElement ? 'وضع ملء الشاشة مفعل' : 'وضع ملء الشاشة معطل',
+      'info'
+    );
+  });
+});

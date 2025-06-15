@@ -1,6 +1,7 @@
 let localStream;
 let peerConnection;
 let usingFrontCamera = true;
+let pendingCandidates = [];
 const ws = new WebSocket("wss://qah-news-signal.onrender.com");
 const videoElement = document.getElementById("localVideo");
 
@@ -8,11 +9,12 @@ const config = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
     {
-      urls: "turn:openrelay.metered.ca:80",
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
       username: "openrelayproject",
       credential: "openrelayproject"
     }
-  ]
+  ],
+  iceTransportPolicy: "relay"
 };
 
 ws.onopen = () => {
@@ -71,12 +73,14 @@ async function initCamera() {
 
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
+
     ws.send(JSON.stringify({
       type: "signal",
       role: "guest",
       target: "studio",
       payload: { sdp: offer }
     }));
+
   } catch (err) {
     console.error("Media error:", err);
   }
@@ -89,13 +93,28 @@ ws.onmessage = async ({ data }) => {
 
     if (sdp) {
       await peerConnection.setRemoteDescription(new RTCSessionDescription(sdp));
+      // Apply any stored ICE candidates now
+      pendingCandidates.forEach(async c => {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(c));
+        } catch (err) {
+          console.warn("Error applying stored ICE:", err);
+        }
+      });
+      pendingCandidates = [];
     }
 
-    if (candidate && peerConnection.remoteDescription) {
-      try {
-        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
-      } catch (err) {
-        console.warn("Failed to add ICE candidate:", err);
+    if (candidate) {
+      if (peerConnection.remoteDescription) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          console.warn("Failed to add ICE candidate:", err);
+        }
+      } else {
+        // Store for later
+        pendingCandidates.push(candidate);
+        console.log("Stored ICE candidate before remote description set");
       }
     }
   }
